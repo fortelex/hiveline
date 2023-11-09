@@ -1,0 +1,15 @@
+{
+    "created": "2023-10-31T17:26:03.697163",
+    "description": "400m global hexagon population grid. Values represent number of people in cell. Release 2023-11-01.",
+    "format": "Geopackage",
+    "download_url": "https://geodata-eu-central-1-kontur-public.s3.eu-central-1.amazonaws.com/kontur_datasets/kontur_population_20231101.gpkg.gz",
+    "id": "78688126-f729-41b5-ac79-195598dbfad7",
+    "last_modified": "2023-10-31T17:26:03.680913",
+    "metadata_modified": "2023-10-31T17:26:05.122504",
+    "microdata": false,
+    "dataset_id": "38f46aa9-00dd-4ac9-98c9-5ecaea384c9f",
+    "resource_type": "api",
+    "name": "kontur_population_20231101.gpkg.gz",
+    "mimetype": null,
+    "size": "0.0B"
+}

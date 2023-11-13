@@ -1,9 +1,10 @@
-import math
+import time
 from datetime import datetime
 
 import numpy as np
-import pandas as pd
 import requests
+
+from mongo import mongo
 
 
 def get_route(from_lat, from_lon, to_lat, to_lon, date, time, modes=None):
@@ -110,58 +111,43 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, modes=None):
 delay_data = {}
 
 
-def read_delay_file(path):
+def read_delay_statistics():
     """
-    This function reads the delay files from the specified path and stores the data in the delay_data dictionary
+    This function reads the delay statistics from the database
 
     :param path: path to the delay files
     """
-    df = pd.read_csv(path, sep=",")
+    db = mongo.get_database()
 
-    data = {}
+    coll = db["delay_statistics"]
 
-    for index, row in df.iterrows():
-        agency = row["agency"].lower()
+    for doc in coll.find():
+        name = doc["name"]
+        starts = doc["starts"]
+        weights = doc["weights"]
+        substituted_percent = doc["substituted_percent"]
+        cancelled_percent = doc["cancelled_percent"]
 
-        if agency not in data:
-            data[agency] = {"bins": [], "substituted_percent": 0, "cancelled_percent": 0}
+        identity = list(range(len(starts)))
 
-        label = row["label"]
-        weight = float(str(row["percent"]).rstrip("%"))
-
-        if math.isnan(weight):
-            weight = 0
-
-        if label == "substituted":
-            data[agency]["substituted_percent"] = weight
-            continue
-
-        if label == "cancelled":
-            data[agency]["cancelled_percent"] = weight
-            continue
-
-        bin_start = int(label.rstrip("–"))
-        data[agency]["bins"] += [(bin_start, weight)]
-
-    for agency in data:
-        bins = data[agency]["bins"]
-        bins = np.sort(np.array(bins, dtype=[("start", int), ("weight", float)]), order="start")
-
-        starts = [x[0] for x in bins]
-        identity = np.arange(len(starts))
-        weights = [x[1] for x in bins]
-
-        # normalize weights
-        weight_sum = sum(weights)
-        weights = np.array([x / weight_sum for x in weights])
-
-        delay_data[agency] = {
+        delay_data[name] = {
             "starts": starts,
-            "identity": identity,
             "weights": weights,
-            "substituted_percent": data[agency]["substituted_percent"],
-            "cancelled_percent": data[agency]["cancelled_percent"]
+            "substituted_percent": substituted_percent,
+            "cancelled_percent": cancelled_percent,
+            "identity": identity
         }
+
+
+def ensure_delay_statistics():
+    """
+    This function ensures that the delay statistics are loaded. If they are not loaded, they are loaded from the
+    database.
+
+    :return: None
+    """
+    if len(delay_data) == 0:
+        read_delay_statistics()
 
 
 def get_random_delay(operator_name):
@@ -169,11 +155,11 @@ def get_random_delay(operator_name):
     This function returns a random delay for the specified operator. The delay is either cancelled or a random value
     between the specified interval.
 
-    Make sure to call read_delay_files before calling this function.
-
     :param operator_name: the name of the operator
     :return: a dictionary with the keys "cancelled" and "delay"
     """
+    ensure_delay_statistics()
+
     operator_name = operator_name.lower()
     if operator_name not in delay_data:
         operator_name = "average"
@@ -213,8 +199,6 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, modes):
     adds a random delay to each leg of the itinerary. If a leg is cancelled or the traveller cannot catch the next
     connection, OTP may be queried multiple times.
 
-    Make sure to call read_delay_files before calling this function.
-
     :param from_lat: latitude of the start location
     :param from_lon: longitude of the start location
     :param to_lat: latitude of the destination
@@ -224,6 +208,8 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, modes):
     :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
     :return: a delayed itinerary
     """
+    ensure_delay_statistics()
+
     itineraries = get_route(from_lat, from_lon, to_lat, to_lon, date, time, modes)
 
     if itineraries is None or len(itineraries) == 0:

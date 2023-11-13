@@ -12,8 +12,6 @@ def get_delay_along_route():
     return delay
 
 
-otp.read_delay_file("delay_statistics.csv")
-
 delays = [get_delay_along_route() for _ in range(30)]
 
 # plot histogram

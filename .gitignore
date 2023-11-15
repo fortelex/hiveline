@@ -164,3 +164,6 @@ cython_debug/
 
 # very big file
 data/population_density/kontur_population_20231101.gpkg
+
+# local archive folder
+_archive

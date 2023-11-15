@@ -53,13 +53,10 @@ def __create_route_calculation_jobs(db):
             continue  # job was created by other process while iterating
 
 
-def __route_virtual_commuter(vc, uses_delays):
-    # TODO route multiple mode combinations
+def __get_route_option(vc, uses_delays, modes):
     origin = vc["origin"]["coordinates"]
     destination = vc["destination"]["coordinates"]
     departure = vc["departure"]
-
-    modes = ["WALK", "TRANSIT"]
 
     departure_date = departure.strftime("%Y-%m-%d")
     departure_time = departure.strftime("%H:%M")
@@ -80,14 +77,23 @@ def __route_virtual_commuter(vc, uses_delays):
     if itineraries is None or len(itineraries) == 0:
         return None
 
-    return [{
+    return {
         "route-option-id": str(uuid.uuid4()),
         "origin": vc["origin"],
         "destination": vc["destination"],
         "departure": vc["departure"],
         "modes": modes,
         "itineraries": itineraries
-    }]
+    }
+
+
+def __route_virtual_commuter(vc, uses_delays):
+    mode_combinations = [["WALK", "TRANSIT"]]
+
+    if "traveller" in vc and "would-use-car" in vc["traveller"] and vc["traveller"]["would-use-car"]:
+        mode_combinations += [["WALK", "CAR"]]
+
+    return [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
 
 
 def __approx_dist(origin, destination):

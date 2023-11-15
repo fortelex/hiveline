@@ -100,6 +100,14 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
     if response.status_code == 200:
         json_data = response.json()
 
+        if "data" not in json_data:
+            print("Empty data key. OTP may have failed to parse the request. Query:")
+            print(query)
+            print("Response:")
+            print(json_data)
+
+            return None
+
         itineraries = json_data['data']['plan']['itineraries']
 
         # Return the itineraries

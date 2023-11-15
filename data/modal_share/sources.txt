@@ -1,5 +1,0 @@
-Mobility behavior of people in Schleswig-Holstein
-https://ckan.mobidatalab.eu/dataset/mobility-behaviour-of-people-in-schleswig-holstein
-
-Modal split constancy (Konstanz)
-https://ckan.mobidatalab.eu/dataset/modal-split

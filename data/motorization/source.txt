@@ -1,0 +1,5 @@
+Stock of vehicles by category and NUTS 2 regions
+
+https://ec.europa.eu/eurostat/databrowser/view/TRAN_R_VEHST__custom_8470521/default/map?lang=en
+
+Latest data is 2021, but some missing regions (France, Portugal) can be replaced with 2020

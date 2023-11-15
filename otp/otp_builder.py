@@ -9,11 +9,20 @@ file_name = "otp-" + version + "-shaded.jar"
 
 
 def __ensure_directory(path):
+    """
+    Ensures that the given directory exists. If it does not exist, it will be created.
+    :param path: The path to the directory
+    :return:
+    """
     if not os.path.isdir(path):
         os.mkdir(path)
 
 
 def __ensure_otp_downloaded():
+    """
+    Ensures that the OTP jar file is downloaded.
+    :return:
+    """
     __ensure_directory("otp/bin")
 
     if not os.path.isfile("otp/bin/" + file_name):
@@ -24,10 +33,19 @@ def __ensure_otp_downloaded():
 
 
 def __ensure_data_directory():
+    """
+    Ensures that the data directory exists.
+    :return:
+    """
     __ensure_directory("otp/data")
 
 
 def __clean_up_graph_file():
+    """
+    Cleans up the graph file. If the routing algorithm did not move the graph file back, it will just stay in the bin
+    directory, so we move it back in this case. If we can't figure out where it came from, it will be deleted.
+    :return:
+    """
     __ensure_data_directory()
 
     if not os.path.isfile("otp/bin/graph.obj"):
@@ -45,6 +63,12 @@ def __clean_up_graph_file():
 
 
 def __get_closest_link(link_list, target_date):
+    """
+    Returns the link that is closest to the target date.
+    :param link_list: A list of objects, each with a link and a date
+    :param target_date: The target date
+    :return: The closest link, or None if no link was found
+    """
     if link_list is None or len(link_list) == 0:
         return None
 
@@ -65,6 +89,12 @@ def __get_closest_link(link_list, target_date):
 
 
 def __ensure_data_downloaded(link_object, file_name_extension):
+    """
+    Ensures that the data file is downloaded.
+    :param link_object: The link object. Must have a "link" key.
+    :param file_name_extension: The file name extension, including the dot
+    :return: The file name of the downloaded file
+    """
     if link_object is None:
         return None
     link = link_object["link"]
@@ -83,6 +113,13 @@ def __ensure_data_downloaded(link_object, file_name_extension):
 
 
 def __ensure_closest_pbf_downloaded(place, target_date):
+    """
+    Ensures that the closest OSM file to a target date is downloaded.
+    :param place: The place resource object. Must have an "osm" key.
+    :param target_date: The target date
+    :return: file: The file name of the downloaded file, source: The source of the file, date: The date of the file
+             None if no OSM file was found
+    """
     closest_osm_link = __get_closest_link(place["osm"], target_date)
     if closest_osm_link is None:
         print("No OSM link found")
@@ -99,6 +136,13 @@ def __ensure_closest_pbf_downloaded(place, target_date):
 
 
 def __ensure_closest_gtfs_downloaded(place, target_date):
+    """
+    Ensures that the closest GTFS file to a target date is downloaded.
+    :param place: The place resource object. Must have a "gtfs" key.
+    :param target_date: The target date
+    :return: file: The file name of the downloaded file, source: The source of the file, date: The date of the file
+             None if no GTFS file was found
+    """
     closest_gtfs_link = __get_closest_link(place["gtfs"], target_date)
     if closest_gtfs_link is None:
         print("No GTFS link found")
@@ -114,7 +158,13 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
     }
 
 
-def use_build_config(osm_files, gtfs_files):
+def __use_build_config(osm_files, gtfs_files):
+    """
+    Updates the build config file based on the given OSM and GTFS files.
+    :param osm_files: A list of OSM files
+    :param gtfs_files: A list of GTFS files
+    :return:
+    """
     # convert to absolute paths
     osm_files = ["file:///" + os.path.abspath(f).replace("\\", "/") for f in osm_files]
     gtfs_files = ["file:///" + os.path.abspath(f).replace("\\", "/") for f in gtfs_files]
@@ -132,7 +182,16 @@ def use_build_config(osm_files, gtfs_files):
         json.dump(config, f)
 
 
-def build_graph(place, target_date):
+def build_graph(place, target_date, force_rebuild=False):
+    """
+    Builds the graph for the given place and target date. If the graph already exists, it will not be rebuilt, unless
+    force_rebuild=True.
+    :param place: The place resource object
+    :param target_date: The target date
+    :param force_rebuild: If True, the graph will be rebuilt even if it already exists
+    :return: otp_version: The version of OTP used, graph_file: The file name of the graph, osm_source: The resource
+             object of the OSM file, gtfs_source: The resource object of the GTFS file
+    """
     __clean_up_graph_file()
 
     graph_file = "./otp/data/" + place["place-id"] + "-" + target_date.isoformat().replace(":", "") + "-graph.obj"
@@ -142,7 +201,7 @@ def build_graph(place, target_date):
     osm_resource = __ensure_closest_pbf_downloaded(place, target_date)
     gtfs_resource = __ensure_closest_gtfs_downloaded(place, target_date)
 
-    if os.path.isfile(graph_file):
+    if os.path.isfile(graph_file) and not force_rebuild:
         print("Graph already built")
         return {
             "otp_version": version,
@@ -151,11 +210,14 @@ def build_graph(place, target_date):
             "gtfs_source": gtfs_resource
         }
 
+    if os.path.isfile(graph_file):
+        os.remove(graph_file)
+
     if osm_resource is None or gtfs_resource is None:
         print("No data found")
         return None
 
-    use_build_config([osm_resource["file"]], [gtfs_resource["file"]])
+    __use_build_config([osm_resource["file"]], [gtfs_resource["file"]])
 
     print("Building graph...")
     subprocess.run(["java", "-Xmx4G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
@@ -179,6 +241,12 @@ def build_graph(place, target_date):
 
 
 def run_server(graph_file):
+    """
+    Runs the OTP server with the given graph file. You can use build_graph to build the graph file. It will use
+    Popen to run the server, so you can use the returned process object to terminate the server.
+    :param graph_file: The path to the graph file
+    :return: The process object of the server
+    """
     __clean_up_graph_file()
     __ensure_otp_downloaded()
     __ensure_data_directory()

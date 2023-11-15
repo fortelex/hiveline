@@ -1,91 +1,57 @@
-# OTP Interface
+# Routing
 
-Interface for OpenTripPlanner (OTP) to be used with the [OpenTripPlanner](http://www.opentripplanner.org/) project.
+This package contains the OTP server and the OTP client. The OTP server is a Java application that can be run from the
+command line. The OTP client is a Python package that can be used to communicate with the OTP server.
+
+We also include a `otp_builder.py` file that downloads OTP and resource files and builds the OTP graph.
+The `vc_router.py`
+contains code to pull virtual commuter jobs from the database, route them, and store the results in the database.
+
+## Pre-requisites
+
+- Java 11 or higher
+- Python 3.10 or higher
+- Upper database setup (TODO add database setup guide)
+- Database credentials as environment variables. See [here](../mongo/readme.md) for more information.
 
 ## Installation
 
-### Requirements
-
-Download OTP shaded java executable: [otp shaded](https://repo1.maven.org/maven2/org/opentripplanner/otp/2.4.0/) (174mb)
-
-Download OSM pbf file: osm (137mb): [e.g. schlieswig holstein](https://download.geofabrik.de/europe/germany/schleswig-holstein.html)
-
-Download GTFS file: [e.g. schlieswig holstein](https://opendata.schleswig-holstein.de/dataset/fahrplandaten)
-
-Rename GTFS file to something ending with `.gtfs.zip`
-
-Install python requirements:
+Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Build Graph
-
-```
-java -Xmx4G -jar otp-2.4.0-shaded.jar --build --save .
-```
-
-### Start Server
-
-```
-java -Xmx4G -jar otp-2.4.0-shaded.jar --load .
-```
-
-### Explor API at
-
-```
-http://localhost:8080/graphiql
-```
-
 ## Usage
 
-```python
-import otp.otp
+For usage of the `otp.py` client, see [here](otp.md).
 
-otp.get_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00",
-                      ["WALK", "TRANSIT"])
+To use the VC Router, you need to add the root of the repository to your PYTHONPATH. For example, if this repository
+is located in `C:\Users\user\Documents\upper-codagon`, you can add it to your PYTHONPATH by running this in powershell:
+
+```bash
+$env:PYTHONPATH += ";C:\Users\user\Documents\upper-codagon"
 ```
 
-## Setting up delay data
+Or in linux:
 
-### Download delay data
-
-You can simulate delays using delay histograms. You can find delay statistics on the [Traines Website](https://stats.traines.eu/d/op1pWNF4z/main?orgId=1).
-
-- Select operator in the drop-down menu
-- Go to the panel: "Absolute delay histogram of is_departure for operator \<your operator>"
-- Select Inspect - Data
-- Click on download data
-
-### Pushing to database
-
-You can push the data to the database using the `otp_reader.py` script. See [here](../mongo/readme.md) to set up the database.
-
-- Put the csv file in the `otp/delay_statistics` folder. Rename it to either the operator name that is used in the GTFS file
-  or the [special key](#special-key-average) "average.csv".
-- Run `python otp/otp_reader.py`
-
-Now the data is in the database (collection `delay_statistics`) and ready to use in the OTP interface.
-
-### Special key "average"
-
-By default, the delay engine will use a delay based on the histogram of the operator. However, some operators
-may not be registered in the delay database. In this case, it will fall back to the "average" key. This is
-the histogram of all operators combined. 
-
-Download it in the same way as the operator histograms, but from the panel "Absolute delay histogram of is_departure for product_type regional".
-
-And name it "average.csv" before running `otp_reader.py`.
-
-### Usage
-
-```python
-import otp.otp
-
-otp.get_delayed_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00",
-                      ["WALK", "TRANSIT"])
+```bash
+export PYTHONPATH=$PYTHONPATH:/home/user/upper-codagon
 ```
 
-Note that `get_delayed_route` uses `get_route` internally. If a train cannot be caught due to delays or
-cancellations, it will be recalculated.
+Then, you can run the VC Router:
+
+```bash
+python otp/vc_router.py 35e58b29-ea03-4b34-b533-05c848b9fb31
+```
+
+The uuid here is the Virtual Commuter Set ID. You can find this ID in the database.
+
+## What will happen
+
+- It will add any virtual-commuter jobs that are not yet in the database
+- It will download OTP to otp/bin
+- It will download the resource files to otp/data
+- It will build the OTP graph if it does not exist yet
+- It will start the OTP server
+- It will route the virtual commuter jobs that are pending and in the database

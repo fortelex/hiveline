@@ -1,3 +1,4 @@
+import argparse
 import math
 import os
 import signal
@@ -12,6 +13,11 @@ from mongo.mongo import get_database
 
 
 def __create_route_calculation_jobs(db):
+    """
+    Create route calculation jobs for all virtual commuters that do not have a job yet.
+    :param db: the database
+    :return:
+    """
     pipeline = [
         {
             "$lookup": {
@@ -54,6 +60,13 @@ def __create_route_calculation_jobs(db):
 
 
 def __get_route_option(vc, uses_delays, modes):
+    """
+    Get a route for a virtual commuter.
+    :param vc: The virtual commuter
+    :param uses_delays: Whether to use delay simulation or not
+    :param modes: The modes to use
+    :return:
+    """
     origin = vc["origin"]["coordinates"]
     destination = vc["destination"]["coordinates"]
     departure = vc["departure"]
@@ -88,6 +101,12 @@ def __get_route_option(vc, uses_delays, modes):
 
 
 def __route_virtual_commuter(vc, uses_delays):
+    """
+    Route a virtual commuter. It will calculate available mode combinations and then calculate routes for each of them.
+    :param vc:
+    :param uses_delays:
+    :return:
+    """
     mode_combinations = [["WALK", "TRANSIT"]]
 
     if "traveller" in vc and "would-use-car" in vc["traveller"] and vc["traveller"]["would-use-car"]:
@@ -132,6 +151,11 @@ def __approx_dist(origin, destination):
 
 
 def __extract_mode_data(leg):
+    """
+    Extract relevant data from a leg.
+    :param leg: The trip leg of an itinerary
+    :return: an object with mode, duration (in seconds) and distance (in meters)
+    """
     mode = leg["mode"].lower()
     start_time = leg["startTime"]
     if "rtStartTime" in leg:
@@ -155,6 +179,13 @@ def __extract_mode_data(leg):
 
 
 def __extract_relevant_data(route_details):
+    """
+    Extract relevant data from a route details object.
+
+    :param route_details: Route details. The output of __get_route_option
+    :return: An object with route-option-id, route-duration (in s), route-changes, route-delay (in s),
+             route-recalculated, modes (array of objects with mode, duration (in s) and distance (in m))
+    """
     itinerary = route_details["itineraries"][0]
     start_time = itinerary["startTime"]
     end_time = itinerary["endTime"]
@@ -187,7 +218,19 @@ def __extract_relevant_data(route_details):
     }
 
 
+def __no_active_jobs(db, vc_set_id):
+    jobs_coll = db["route-calculation-jobs"]
+    return jobs_coll.count_documents({"vc-set-id": vc_set_id, "status": "pending"}) == 0
+
+
 def __iterate_jobs(db, vc_set_id, meta):
+    """
+    Iterate over all pending jobs in the database for a virtual commuter set and calculate routes for them.
+    :param db: the database
+    :param vc_set_id: the virtual commuter set id
+    :param meta: metadata about the routing process
+    :return: Nothing, all data is pushed to database
+    """
     jobs_coll = db["route-calculation-jobs"]
     route_results_coll = db["route-results"]
     route_options_coll = db["route-options"]
@@ -294,22 +337,41 @@ def __iterate_jobs(db, vc_set_id, meta):
 
 
 def __wait_for_line(process, line_to_wait_for):
+    """
+    Wait for a specific line to appear in the output of a process
+
+    :param process: the process
+    :param line_to_wait_for: the line to wait for
+    :return:
+    """
     for line in iter(process.stdout.readline, b''):
         print(line, end='')  # Optional: print the line
         if line_to_wait_for in line:
             break
 
 
-def run(vc_set_id, use_delays=True):
+def run(vc_set_id, use_delays=True, force_graph_rebuild=False):
+    """
+    Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
+    for all open jobs in the database. It will also update the database with the results of the routing algorithm.
+    :param vc_set_id: The virtual commuter set id
+    :param use_delays: Whether to use delays or not
+    :param force_graph_rebuild: Whether to force a rebuild of the graph or not
+    :return:
+    """
     db = get_database()
 
     __create_route_calculation_jobs(db)
+
+    if __no_active_jobs(db, vc_set_id):
+        print("No active jobs, stopping")
+        return
 
     vc_set = db["virtual-commuters-sets"].find_one({"vc-set-id": vc_set_id})
     place_resources = db["place-resources"].find_one({"place-id": vc_set["place-id"]})
     pivot_date = vc_set["pivot-date"]
 
-    resources = builder.build_graph(place_resources, pivot_date)
+    resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild)
 
     proc = builder.run_server(resources["graph_file"])
 
@@ -335,9 +397,23 @@ def run(vc_set_id, use_delays=True):
     finally:
         print("Terminating server...")
 
-        os.kill(proc.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
+        try:
+            os.kill(proc.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
+
+            proc.wait()
+        except KeyboardInterrupt:
+            pass
 
         print("Server terminated")
 
 
-run("35e58b29-ea03-4b34-b533-05c848b9fb31")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Run the routing algorithm for a virtual commuter set')
+    parser.add_argument('vc_set_id', type=str, help='The virtual commuter set id')
+    parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
+    parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
+                                                                                                       'force a rebuild of the graph or not')
+
+    args = parser.parse_args()
+
+    run(args.vc_set_id, not args.no_delays, args.force_graph_rebuild)

@@ -1,4 +1,3 @@
-import time
 from datetime import datetime
 
 import numpy as np
@@ -123,7 +122,7 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
 delay_data = {}
 
 
-def read_delay_statistics():
+def __read_delay_statistics():
     """
     This function reads the delay statistics from the database
 
@@ -151,7 +150,7 @@ def read_delay_statistics():
         }
 
 
-def ensure_delay_statistics():
+def __ensure_delay_statistics():
     """
     This function ensures that the delay statistics are loaded. If they are not loaded, they are loaded from the
     database.
@@ -159,10 +158,10 @@ def ensure_delay_statistics():
     :return: None
     """
     if len(delay_data) == 0:
-        read_delay_statistics()
+        __read_delay_statistics()
 
 
-def get_random_delay(operator_name):
+def __get_random_delay(operator_name):
     """
     This function returns a random delay for the specified operator. The delay is either cancelled or a random value
     between the specified interval.
@@ -170,7 +169,7 @@ def get_random_delay(operator_name):
     :param operator_name: the name of the operator
     :return: a dictionary with the keys "cancelled" and "delay"
     """
-    ensure_delay_statistics()
+    __ensure_delay_statistics()
 
     operator_name = operator_name.lower()
     if operator_name not in delay_data:
@@ -221,7 +220,7 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival
     :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
     :return: a delayed itinerary
     """
-    ensure_delay_statistics()
+    __ensure_delay_statistics()
 
     itineraries = get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival, modes)
 
@@ -271,7 +270,7 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival
             operator_name = leg["route"]["agency"]["name"]
 
             # get the delay
-            delay = get_random_delay(operator_name)
+            delay = __get_random_delay(operator_name)
 
             # check if the connection is cancelled
             if delay["cancelled"]:

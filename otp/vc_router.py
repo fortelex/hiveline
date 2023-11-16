@@ -422,4 +422,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    run(args.vc_set_id, not args.no_delays, args.force_graph_rebuild)
+    run(args.vc_set_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory)

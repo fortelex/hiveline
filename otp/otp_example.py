@@ -4,7 +4,7 @@ import otp
 
 
 def get_delay_along_route():
-    itinerary = otp.get_delayed_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00",
+    itinerary = otp.get_delayed_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00", False,
                       ["WALK", "TRANSIT"])
     if itinerary is None:
         return None

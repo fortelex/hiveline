@@ -1,0 +1,6 @@
+Income of households by NUTS 2 regions
+https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2hhinc/default/map?lang=en
+2020
+
+Mean and median income by degree of urbanisation
+https://ec.europa.eu/eurostat/databrowser/view/ilc_di17__custom_8470810/default/table?lang=en

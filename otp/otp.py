@@ -82,6 +82,9 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
                       lon
                       lat
                     }
+                    legGeometry {
+                        points
+                    }
                 }
             }
         }

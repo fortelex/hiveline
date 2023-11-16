@@ -43,12 +43,12 @@ def __create_route_calculation_jobs(db):
 
     for doc in result:
         vc_id = doc["vc-id"]
-        vc_set_id = doc["vc-set-id"]
+        sim_id = doc["sim-id"]
         created = datetime.now()
 
         job = {
             "vc-id": vc_id,
-            "vc-set-id": vc_set_id,
+            "sim-id": sim_id,
             "created": created,
             "status": "pending"
         }
@@ -218,16 +218,16 @@ def __extract_relevant_data(route_details):
     }
 
 
-def __no_active_jobs(db, vc_set_id):
+def __no_active_jobs(db, sim_id):
     jobs_coll = db["route-calculation-jobs"]
-    return jobs_coll.count_documents({"vc-set-id": vc_set_id, "status": "pending"}) == 0
+    return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __iterate_jobs(db, vc_set_id, meta):
+def __iterate_jobs(db, sim_id, meta):
     """
     Iterate over all pending jobs in the database for a virtual commuter set and calculate routes for them.
     :param db: the database
-    :param vc_set_id: the virtual commuter set id
+    :param sim_id: the virtual commuter set id
     :param meta: metadata about the routing process
     :return: Nothing, all data is pushed to database
     """
@@ -239,7 +239,7 @@ def __iterate_jobs(db, vc_set_id, meta):
         {
             "$match": {
                 "status": "pending",
-                "vc-set-id": vc_set_id
+                "sim-id": sim_id
             }
         },
         {
@@ -286,7 +286,7 @@ def __iterate_jobs(db, vc_set_id, meta):
             # dump options to route-results collection
             route_results = {
                 "vc-id": vc["vc-id"],
-                "vc-set-id": vc["vc-set-id"],
+                "sim-id": vc["sim-id"],
                 "created": datetime.now(),
                 "options": options,
                 "meta": meta
@@ -302,7 +302,7 @@ def __iterate_jobs(db, vc_set_id, meta):
             # extract relevant data for decision making
             route_options = {
                 "vc-id": vc["vc-id"],
-                "vc-set-id": vc["vc-set-id"],
+                "sim-id": vc["sim-id"],
                 "created": datetime.now(),
                 "traveller": vc["traveller"],
                 "options": [__extract_relevant_data(option) for option in options],
@@ -350,11 +350,11 @@ def __wait_for_line(process, line_to_wait_for):
             break
 
 
-def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4):
+def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
-    :param vc_set_id: The virtual commuter set id
+    :param sim_id: The virtual commuter set id
     :param use_delays: Whether to use delays or not
     :param force_graph_rebuild: Whether to force a rebuild of the graph or not
     :param graph_build_memory: The amount of memory to use for the graph build process
@@ -365,11 +365,11 @@ def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memor
 
     __create_route_calculation_jobs(db)
 
-    if __no_active_jobs(db, vc_set_id):
+    if __no_active_jobs(db, sim_id):
         print("No active jobs, stopping")
         return
 
-    vc_set = db["virtual-commuters-sets"].find_one({"vc-set-id": vc_set_id})
+    vc_set = db["simulations"].find_one({"sim-id": sim_id})
     place_resources = db["place-resources"].find_one({"place-id": vc_set["place-id"]})
     pivot_date = vc_set["pivot-date"]
 
@@ -394,7 +394,7 @@ def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memor
         __wait_for_line(proc, "Grizzly server running.")  # that is the last line printed by the server when it is ready
         print("Server started")
 
-        __iterate_jobs(db, vc_set_id, meta)
+        __iterate_jobs(db, sim_id, meta)
 
     finally:
         print("Terminating server...")
@@ -411,7 +411,7 @@ def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memor
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the routing algorithm for a virtual commuter set')
-    parser.add_argument('vc_set_id', type=str, help='The virtual commuter set id')
+    parser.add_argument('sim_id', type=str, help='The virtual commuter set id')
     parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
     parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
                                                                                                        'force a rebuild of the graph or not')
@@ -422,4 +422,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    run(args.vc_set_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory)
+    run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory)

@@ -379,8 +379,8 @@ def run(vc_set_id, use_delays=True, force_graph_rebuild=False):
         "otp-version": resources["otp_version"],
         "osm-dataset-link": resources["osm_source"]["source"],
         "osm-dataset-date": resources["osm_source"]["date"],
-        "gtfs-dataset-link": resources["gtfs_source"]["source"],
-        "gtfs-dataset-date": resources["gtfs_source"]["date"],
+        "gtfs": [{"source": source["source"], "date": source["date"], "provider": source["provider"]} for source in
+                 resources["gtfs_source"]],
         "uses-delay-simulation": use_delays
     }
 

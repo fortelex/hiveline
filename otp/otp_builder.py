@@ -4,6 +4,8 @@ import os
 import subprocess
 import urllib.request
 
+import gtfs_consistency
+
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"
 
@@ -143,22 +145,31 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
     Ensures that the closest GTFS file to a target date is downloaded.
     :param place: The place resource object. Must have a "gtfs" key.
     :param target_date: The target date
-    :return: file: The file name of the downloaded file, source: The source of the file, date: The date of the file
-             None if no GTFS file was found
+    :return: list of objects with fields:
+             file: The file name of the downloaded file, source: The source of the file, date: The date of the file
     """
-    closest_gtfs_link = __get_closest_link(place["gtfs"], target_date, True)
-    if closest_gtfs_link is None:
-        print("No GTFS link found")
-        return None
+    links = []
 
-    print(closest_gtfs_link)
+    for provider, link_list in place["gtfs"].items():
+        closest_gtfs_link = __get_closest_link(link_list, target_date, True)
+        if closest_gtfs_link is None:
+            continue
 
-    closest_gtfs_file = __ensure_data_downloaded(closest_gtfs_link, ".gtfs.zip")
-    return {
-        "file": closest_gtfs_file,
-        "source": closest_gtfs_link["link"],
-        "date": closest_gtfs_link["date"]
-    }
+        print(closest_gtfs_link)
+
+        closest_gtfs_file = __ensure_data_downloaded(closest_gtfs_link, ".gtfs.zip")
+
+        # fix inconsistencies
+        gtfs_consistency.fix_gtfs(closest_gtfs_file)
+
+        links.append({
+            "file": closest_gtfs_file,
+            "source": closest_gtfs_link["link"],
+            "date": closest_gtfs_link["date"],
+            "provider": provider
+        })
+
+    return links
 
 
 def __use_build_config(osm_files, gtfs_files):
@@ -193,16 +204,22 @@ def build_graph(place, target_date, force_rebuild=False):
     :param target_date: The target date
     :param force_rebuild: If True, the graph will be rebuilt even if it already exists
     :return: otp_version: The version of OTP used, graph_file: The file name of the graph, osm_source: The resource
-             object of the OSM file, gtfs_source: The resource object of the GTFS file
+             object of the OSM file, gtfs_sources: An array of resource objects of the GTFS files
     """
     __clean_up_graph_file()
+
+    print("Building graph for " + place["place-id"] + " on " + target_date.isoformat())
+    print(place)
 
     graph_file = "./otp/data/" + place["place-id"] + "-" + target_date.isoformat().replace(":", "") + "-graph.obj"
 
     __ensure_otp_downloaded()
 
     osm_resource = __ensure_closest_pbf_downloaded(place, target_date)
-    gtfs_resource = __ensure_closest_gtfs_downloaded(place, target_date)
+    gtfs_resources = __ensure_closest_gtfs_downloaded(place, target_date)
+
+    print("OSM resource: " + str(osm_resource))
+    print("GTFS resources: " + str(gtfs_resources))
 
     if os.path.isfile(graph_file) and not force_rebuild:
         print("Graph already built")
@@ -210,20 +227,20 @@ def build_graph(place, target_date, force_rebuild=False):
             "otp_version": version,
             "graph_file": graph_file,
             "osm_source": osm_resource,
-            "gtfs_source": gtfs_resource
+            "gtfs_sources": gtfs_resources
         }
 
     if os.path.isfile(graph_file):
         os.remove(graph_file)
 
-    if osm_resource is None or gtfs_resource is None:
+    if osm_resource is None or gtfs_resources is None or len(gtfs_resources) == 0:
         print("No data found")
         return None
 
-    __use_build_config([osm_resource["file"]], [gtfs_resource["file"]])
+    __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources])
 
     print("Building graph...")
-    subprocess.run(["java", "-Xmx4G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
+    subprocess.run(["java", "-Xmx6G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
     print("Done")
 
     if not os.path.isfile("./otp/bin/graph.obj"):
@@ -239,7 +256,7 @@ def build_graph(place, target_date, force_rebuild=False):
         "otp_version": version,
         "graph_file": graph_file,
         "osm_source": osm_resource,
-        "gtfs_source": gtfs_resource
+        "gtfs_sources": gtfs_resources
     }
 
 
@@ -270,6 +287,6 @@ def run_server(graph_file):
         }, f)
 
     print("Starting server...")
-    return subprocess.Popen(["java", "-Xmx4G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
+    return subprocess.Popen(["java", "-Xmx6G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
                             stdout=subprocess.PIPE, text=True, encoding="utf-8")
 

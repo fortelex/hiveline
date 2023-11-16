@@ -146,20 +146,27 @@ def __extract_location_transit_feeds(base_url):
     return links, location_name
 
 
-def create_place_resources(geofabrik_url, transitfeeds_url, place_name=None, place_id=None):
+def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, place_id=None):
     """
-    Extracts the links from given web pages and puts them into the database.
+    Extracts the links from given web pages and puts them into the database. At least one of geofabrik_url and
+    transitfeeds_url must be set.
 
     :param geofabrik_url: The url to the geofabrik page of the location. For example
            https://download.geofabrik.de/europe/ireland-and-northern-ireland.html
     :param transitfeeds_url: The url to the transitfeeds.com page of the location. For example
            https://transitfeeds.com/l/579-dublin-ireland
+    :param place_name: The name of the place. If not set, the name will be extracted from the transitfeeds page.
+    :param place_id: The id of the place. If not set, a random id will be generated.
     :return:
     """
+    if geofabrik_url is None and transitfeeds_url is None:
+        raise ValueError("At least one of geofabrik_url and transitfeeds_url must be set")
+
     db = get_database()
 
-    osm_links = __extract_geo_fabrik(geofabrik_url)
-    gtfs_links, location_name = __extract_location_transit_feeds(transitfeeds_url)
+    osm_links = __extract_geo_fabrik(geofabrik_url) if geofabrik_url is not None else []
+    gtfs_links, location_name = __extract_location_transit_feeds(
+        transitfeeds_url) if transitfeeds_url is not None else {}, None
 
     if place_name is not None:
         location_name = place_name
@@ -181,7 +188,6 @@ def create_place_resources(geofabrik_url, transitfeeds_url, place_name=None, pla
     db["place-resources"].insert_one(doc)
 
 
-gf_url = "https://download.geofabrik.de/europe/france/ile-de-france.html"
-tf_url = "https://transitfeeds.com/l/162-paris-france"
-create_place_resources(gf_url, tf_url)
-
+gf_url = "https://download.geofabrik.de/europe/germany/hessen.html"
+tf_url = None
+create_place_resources(gf_url, tf_url, "Wiesbaden")

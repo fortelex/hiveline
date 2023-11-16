@@ -373,9 +373,9 @@ def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memor
     place_resources = db["place-resources"].find_one({"place-id": vc_set["place-id"]})
     pivot_date = vc_set["pivot-date"]
 
-    resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild)
+    resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild, graph_build_memory)
 
-    proc = builder.run_server(resources["graph_file"])
+    proc = builder.run_server(resources["graph_file"], server_memory)
 
     meta = {
         "otp-version": resources["otp_version"],

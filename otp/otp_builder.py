@@ -62,11 +62,12 @@ def __clean_up_graph_file():
     print("Cleaned up graph file")
 
 
-def __get_closest_link(link_list, target_date):
+def __get_closest_link(link_list, target_date, ignore_future=False):
     """
     Returns the link that is closest to the target date.
     :param link_list: A list of objects, each with a link and a date
     :param target_date: The target date
+    :param ignore_future: If true, links in the future of the target date will be ignored
     :return: The closest link, or None if no link was found
     """
     if link_list is None or len(link_list) == 0:
@@ -77,6 +78,8 @@ def __get_closest_link(link_list, target_date):
 
     for i in range(len(link_list)):
         link = link_list[i]
+        if ignore_future and link["date"] > target_date:
+            continue
         dist = abs(link["date"] - target_date)
         if min_dist is None or dist < min_dist:
             min_dist = dist
@@ -143,7 +146,7 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
     :return: file: The file name of the downloaded file, source: The source of the file, date: The date of the file
              None if no GTFS file was found
     """
-    closest_gtfs_link = __get_closest_link(place["gtfs"], target_date)
+    closest_gtfs_link = __get_closest_link(place["gtfs"], target_date, True)
     if closest_gtfs_link is None:
         print("No GTFS link found")
         return None

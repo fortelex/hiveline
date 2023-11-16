@@ -10,7 +10,7 @@ vc_set_id = "9a0194be-b1be-425c-a408-98163e03ab56"
 db = get_database()
 route_results = db["route-results"]
 
-results = route_results.find({"vc-set-id": vc_set_id})
+results = route_results.find({"sim-id": vc_set_id})
 
 print("got results")
 

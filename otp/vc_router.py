@@ -350,13 +350,15 @@ def __wait_for_line(process, line_to_wait_for):
             break
 
 
-def run(vc_set_id, use_delays=True, force_graph_rebuild=False):
+def run(vc_set_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
     :param vc_set_id: The virtual commuter set id
     :param use_delays: Whether to use delays or not
     :param force_graph_rebuild: Whether to force a rebuild of the graph or not
+    :param graph_build_memory: The amount of memory to use for the graph build process
+    :param server_memory: The amount of memory to use for the OTP server
     :return:
     """
     db = get_database()
@@ -413,6 +415,10 @@ if __name__ == "__main__":
     parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
     parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
                                                                                                        'force a rebuild of the graph or not')
+    parser.add_argument('--graph-build-memory', dest='graph_build_memory', type=int, default=4, help='The amount of '
+                                                                                                     'memory to use for the graph build process (in GB)')
+    parser.add_argument('--server-memory', dest='server_memory', type=int, default=4, help='The amount of memory to '
+                                                                                           'use for the OTP server (in GB)')
 
     args = parser.parse_args()
 

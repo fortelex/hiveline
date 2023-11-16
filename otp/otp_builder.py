@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import urllib.request
+from datetime import datetime, timedelta
 
 import gtfs_consistency
 
@@ -172,20 +173,27 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
     return links
 
 
-def __use_build_config(osm_files, gtfs_files):
+def __use_build_config(osm_files, gtfs_files, target_date):
     """
     Updates the build config file based on the given OSM and GTFS files.
     :param osm_files: A list of OSM files
     :param gtfs_files: A list of GTFS files
+    :param target_date: The target date (build process will limit transit service period to +/- 1 year)
     :return:
     """
     # convert to absolute paths
     osm_files = ["file:///" + os.path.abspath(f).replace("\\", "/") for f in osm_files]
     gtfs_files = ["file:///" + os.path.abspath(f).replace("\\", "/") for f in gtfs_files]
 
+    # limit transit service period to +/- 1 year
+    min_date = (target_date - timedelta(days=365)).strftime("%Y-%m-%d")
+    max_date = (target_date + timedelta(days=365)).strftime("%Y-%m-%d")
+
     config = {
         "osm": [{"source": f} for f in osm_files],
         "transitFeeds": [{"type": "gtfs", "source": f} for f in gtfs_files],
+        "transitServiceStart": min_date,
+        "transitServiceEnd": max_date,
     }
 
     __ensure_directory("otp/bin")
@@ -196,13 +204,14 @@ def __use_build_config(osm_files, gtfs_files):
         json.dump(config, f)
 
 
-def build_graph(place, target_date, force_rebuild=False):
+def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     """
     Builds the graph for the given place and target date. If the graph already exists, it will not be rebuilt, unless
     force_rebuild=True.
     :param place: The place resource object
     :param target_date: The target date
     :param force_rebuild: If True, the graph will be rebuilt even if it already exists
+    :param memory_gb: The amount of memory to use for the graph build process
     :return: otp_version: The version of OTP used, graph_file: The file name of the graph, osm_source: The resource
              object of the OSM file, gtfs_sources: An array of resource objects of the GTFS files
     """
@@ -237,10 +246,10 @@ def build_graph(place, target_date, force_rebuild=False):
         print("No data found")
         return None
 
-    __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources])
+    __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources], target_date)
 
     print("Building graph...")
-    subprocess.run(["java", "-Xmx6G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
+    subprocess.run(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
     print("Done")
 
     if not os.path.isfile("./otp/bin/graph.obj"):
@@ -260,11 +269,12 @@ def build_graph(place, target_date, force_rebuild=False):
     }
 
 
-def run_server(graph_file):
+def run_server(graph_file, memory_gb=4):
     """
     Runs the OTP server with the given graph file. You can use build_graph to build the graph file. It will use
     Popen to run the server, so you can use the returned process object to terminate the server.
     :param graph_file: The path to the graph file
+    :param memory_gb: The amount of memory to use for the server
     :return: The process object of the server
     """
     __clean_up_graph_file()
@@ -287,6 +297,6 @@ def run_server(graph_file):
         }, f)
 
     print("Starting server...")
-    return subprocess.Popen(["java", "-Xmx6G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
+    return subprocess.Popen(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
                             stdout=subprocess.PIPE, text=True, encoding="utf-8")
 

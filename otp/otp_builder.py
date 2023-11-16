@@ -194,6 +194,7 @@ def __use_build_config(osm_files, gtfs_files, target_date):
         "transitFeeds": [{"type": "gtfs", "source": f} for f in gtfs_files],
         "transitServiceStart": min_date,
         "transitServiceEnd": max_date,
+        "transitModelTimeZone": "Europe/Berlin",
     }
 
     __ensure_directory("otp/bin")

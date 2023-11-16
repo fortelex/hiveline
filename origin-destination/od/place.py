@@ -4,9 +4,17 @@ import geopandas as gpd
 import numpy as np
 import osmnx as ox
 import shapely
+import matplotlib.pyplot as plt
 
-from .tags import work_tags, education_tags, leisure_tags, empty_tags
-from .variables import data_folder
+from .tags import *
+from .variables import data_folder, point_area, default_work_coefficient
+
+
+def only_geo_points(gdf):
+    '''
+    Filters only geo points from a GeoDataFrame
+    '''
+    return gdf[gdf['geometry'].geom_type == 'Point']
 
 
 class Place():
@@ -114,20 +122,30 @@ class Place():
         '''
         Plot the shape and the population density overlay
         '''
+        if not 'population' in self.data.columns:
+            print('loading population data')
+            self.load_population()
         ax = self.shape.plot(color='white')
         ax.set_axis_off()
-        self.gdf.plot(ax=ax, zorder=1, column='population')
+        self.data.plot(ax=ax, zorder=1, column='population')
 
     def get_zoning(self):
         '''
         Get zoning data from Open Street Map
         '''
         self.zones = {
-            'work': ox.features_from_place(self.name, work_tags),
+            'work_agricultural': ox.features_from_place(self.name, work_agricultural_tags),
+            'work_industrial': ox.features_from_place(self.name, work_industrial_tags),
+            'work_commercial': ox.features_from_place(self.name, work_commercial_tags),
+            'work_office': ox.features_from_place(self.name, work_office_tags),
+            'work_social': ox.features_from_place(self.name, work_social_tags),
             'education': ox.features_from_place(self.name, education_tags),
             'leisure': ox.features_from_place(self.name, leisure_tags),
             'empty': ox.features_from_place(self.name, empty_tags),
         }
+
+        # keep only points for office as the polygons are badly distributed
+        self.zones['work_office'] = only_geo_points(self.zones['work_office'])
 
     def load_zoning_data(self):
         '''
@@ -136,10 +154,7 @@ class Place():
         '''
         self.get_zoning()
         destination = self.tiles.copy()
-        # replace points (a store for example) by this area value
-        point_area = 100  # m²
-        # non empty places are accounted as workplaces according to that coefficient
-        default_work_coefficient = 0.3
+
         # area of a whole single hexagonal tile
         tile_area = self.tiles.to_crs(epsg=6933)['geometry'][0].area
 
@@ -153,14 +168,18 @@ class Place():
                 nb_points = 0
                 if len(local_zoi) != 0:
                     # replace single points with a defined area
-                    nb_points = len(
-                        local_zoi[local_zoi['geometry'].geom_type == 'Point'])
+                    nb_points = len(only_geo_points(local_zoi))
                     area = local_zoi.to_crs(epsg=6933).area.sum()
                 destination.loc[i, interest] = area + nb_points * point_area
-                if interest == 'empty':
-                    destination.loc[i, 'work'] += (tile_area-area) * \
-                        default_work_coefficient
+                # default work rate for non empty area, disabled for now
+                # if interest == 'empty':
+                #    destination.loc[i, 'work'] += (tile_area-area) * \
+                #        default_work_coefficient
 
+        # combine all work zones into one
+        work_zones = [k for k in self.zones.keys() if 'work' in k]
+        destination['work'] = destination[work_zones].sum(axis=1)
+        # merge to data
         self.merge_to_data(destination)
 
     def load_regions(self, nuts_file=data_folder+'nuts/NUTS_RG_01M_2021_4326.geojson'):
@@ -175,7 +194,7 @@ class Place():
         # nuts regions that overlaps with the city
         place_regions = nuts3.loc[nuts3.overlaps(
             self.shape['geometry'][0]), ['id', 'geometry']]
-        place_regions = place_regions.reset_index()
+        place_regions = place_regions.reset_index(drop=True)
         # due to precision differences, the city is overlapping with several regions instead of one
         # regions are defined according to cities boundaries so there should be one region assigned to a city
         # however, a tiled place can span across different regions.
@@ -183,8 +202,52 @@ class Place():
         regions['nuts3'] = ''
         # for each tile, compute the intersection area with the regions and keep the largest
         for i, tile in regions.iterrows():
-            best_matching_index = place_regions.intersection(
-                tile['geometry']).to_crs(epsg=6933).area.argmax()
+            # check if it intersects before computing the intersection area (otherwise there is a warning)
+            intersect = place_regions.intersects(tile['geometry'])
+            best_matching_index = place_regions[intersect].intersection(tile['geometry']).to_crs(epsg=6933).area.argmax()
             regions.loc[i, 'nuts3'] = place_regions.iloc[best_matching_index]['id']
 
         self.merge_to_data(regions)
+
+    def plot_zoning(self, columns=['population', 'work', 'education', 'leisure'], save_name='filename'):
+        '''
+        Plot one or several zoning data
+        Args:
+            columns (list of str): list of columns to plot
+            save (str): name of the file to save, the path and city name is automatically added
+        '''
+        assert len(columns) > 0, 'At least one column is required.'
+        for c in columns:
+            assert c in self.data.columns, f'The column {c} does not exists in the loaded data.'
+
+        nfig = len(columns)
+        ncols = (nfig+1)//2
+        nrows = 1 if nfig == 1 else 2
+        figsize = (3.5*ncols, 3.5*nrows)
+
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+        for i, c in enumerate(columns):
+            if nfig == 1:
+                ax = axes
+            elif nfig == 2:
+                ax = axes[i % 2]
+            else:
+                ax = axes[i % 2, i//2]
+            # add city boundaries
+            self.shape.boundary.plot(ax=ax)
+            # add column data
+            self.data.plot(ax=ax, column=c)
+            ax.set_title(c)
+            ax.set_axis_off()
+
+        # don't show axis for last subplot
+        if nfig > 1 and nfig % 2 == 1:
+            axes[1, ncols-1].set_axis_off()
+
+        # Display the subplots
+        fig.suptitle(self.name)
+        if save_name:
+            city_name = self.name.split(',')[0]
+            plt.savefig(
+                data_folder+f'visualization/zoning/{save_name}_{city_name}.png', dpi=300)
+        plt.show()

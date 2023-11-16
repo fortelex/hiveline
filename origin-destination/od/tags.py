@@ -4,13 +4,25 @@ landuse_dict = {
     'leisure': ['fairground', 'retail', 'recreation_ground', 'religious', 'winter_sports'],
     'empty': ['allotments', 'farmland', 'paddy', 'animal_keeping', 'flowerbed', 'forest', 'grass', 'greenhouse_horticulture', 'meadow', 'orchard', 'plant_nursery', 'vineyard', 'village_green', 'greenfield', 'brownfield', 'landfill', 'cemetery', 'garages', 'military', 'railway']
 }
-# by empty, understand not much traffic flow
 
-work_tags = {
-    'landuse': landuse_dict['work'],
-    'office': True,
+work_agricultural_tags = {
+    'landuse': ['aquaculture', 'farmyard'],
+}
+work_industrial_tags = {
+    'landuse': ['industrial', 'construction', 'port', 'quarry'],
+}
+work_commercial_tags = {
+    'landuse': ['retail', 'commercial'],
     'shop': True,
-    'healthcare': True
+    'amenity': ['restaurant', 'fast_food'],
+}
+work_office_tags = {
+    'office': True,
+}
+work_social_tags = {
+    'landuse': ['institutional', 'civic_admin', 'education'],
+    'amenity': ['kindergarten', 'school', 'college', 'university'],
+    'healthcare': True,
 }
 
 education_tags = {

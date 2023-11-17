@@ -82,14 +82,19 @@ def add_heatmap_to_map(map_f, data):
     return map_f
 
 
-def get_traces(db, sim_id, max_traces=None):
+def get_simulation_traces(db, sim_id, max_traces=None):
     route_results = db["route-results"]
 
     results = route_results.find({"sim-id": sim_id})
 
+    return extract_traces(results, max_traces)
+
+
+def extract_traces(route_results, max_traces=None):
     traces = []
 
-    for result in results:
+    for result in route_results:
+        print("got a result")
         for option in result["options"]:
             if option is None:
                 continue

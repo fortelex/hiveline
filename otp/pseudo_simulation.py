@@ -68,3 +68,7 @@ for i in range(num_virtual_commuters):
     }
 
     commuters.insert_one(vc)
+
+
+print("done")
+print("sim-id: " + sim_id)

@@ -2,8 +2,9 @@ import argparse
 import math
 import os
 import signal
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pymongo.errors
 
@@ -59,6 +60,26 @@ def __create_route_calculation_jobs(db):
             continue  # job was created by other process while iterating
 
 
+def __reset_timed_out_jobs(db):
+    """
+    Reset jobs that have been running for more than 5 minutes.
+    :param db: the database
+    :return:
+    """
+    jobs_coll = db["route-calculation-jobs"]
+
+    jobs_coll.update_many({
+        "status": "running",
+        "started": {
+            "$lt": datetime.now() - timedelta(minutes=5)
+        }
+    }, {
+        "$set": {
+            "status": "pending"
+        }
+    })
+
+
 def __get_route_option(vc, uses_delays, modes):
     """
     Get a route for a virtual commuter.
@@ -112,7 +133,10 @@ def __route_virtual_commuter(vc, uses_delays):
     if "traveller" in vc and "would-use-car" in vc["traveller"] and vc["traveller"]["would-use-car"]:
         mode_combinations += [["WALK", "CAR"]]
 
-    return [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
+    options = [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
+    options = [option for option in options if option is not None]
+
+    return options
 
 
 def __approx_dist(origin, destination):
@@ -261,26 +285,39 @@ def __iterate_jobs(db, sim_id, meta):
 
     use_delays = meta["uses-delay-simulation"]
 
+    # get total number of jobs
+    total_jobs = jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"})
+
     jobs_to_calculate = jobs_coll.aggregate(pipeline)
 
     # by default, we will not stop the process if there is one error, but if there are multiple consecutive errors,
     # we will stop the process
     consecutive_error_number = 0
 
+    print("Running routing algorithm")
+
+    job_key = 0
+    last_print = 0
+
     for doc in jobs_to_calculate:
         if doc["status"] != "pending":
             continue
 
+        job_key += 1
+        percentage = job_key / total_jobs * 100
+        current_time = time.time()
+        if current_time - last_print > 1:
+            print("Progress: {:.2f}%".format(percentage))
+            last_print = current_time
+
         # set status to running
         jobs_coll.update_one({"_id": doc["_id"]}, {"$set": {"status": "running", "started": datetime.now()}})
-
-        print("Running routing algorithm")
 
         try:
             vc = doc["matched_docs"][0]
             options = __route_virtual_commuter(vc, use_delays)
 
-            if options is None:
+            if options is None or len(options) == 0:
                 raise Exception("No route found")
 
             # dump options to route-results collection
@@ -364,6 +401,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     db = get_database()
 
     __create_route_calculation_jobs(db)
+    __reset_timed_out_jobs(db)
 
     if __no_active_jobs(db, sim_id):
         print("No active jobs, stopping")
@@ -394,7 +432,9 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
         __wait_for_line(proc, "Grizzly server running.")  # that is the last line printed by the server when it is ready
         print("Server started")
 
+        t = datetime.now()
         __iterate_jobs(db, sim_id, meta)
+        print("Finished routing algorithm in " + str(datetime.now() - t))
 
     finally:
         print("Terminating server...")

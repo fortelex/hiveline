@@ -24,6 +24,8 @@ class Params:
     mix_factor = 0.1
     max_iterations = 100
 
+    congestion_options = congestion.CongestionOptions()
+
 
 def get_modal_share(route_options, mask=None, delay_set=None):
     """
@@ -194,23 +196,6 @@ def run_decisions(db, sim_id):
     print(f"Transit modal share: {transit_modal_share * 100}%")
 
 
-def find_matching_route_options(db, sim_id, journeys):
-    """
-    Find the corresponding route options for the given journeys
-    :param db: the database
-    :param sim_id: the simulation id
-    :param journeys: the journeys
-    :return: the route options (same order as journeys)
-    """
-    route_options = db["route-options"]
-
-    route_options = list(route_options.find({"sim-id": sim_id}))
-
-    route_options = {option["vc-id"]: option for option in route_options}
-
-    return [route_options[journey["vc-id"]] for journey in journeys]
-
-
 def run_congestion_simulation(db, sim_id, params: Params):
     """
     Run the decision algorithm with congestion simulation
@@ -232,7 +217,7 @@ def run_congestion_simulation(db, sim_id, params: Params):
     print(f"Vehicles per journey: {vehicles_per_journey}")
 
     journeys = list(congestion.find_all_journeys(db, sim_id))
-    route_options = find_matching_route_options(db, sim_id, journeys)
+    route_options = congestion.find_matching_route_options(db, sim_id, journeys)
     edges = congestion.get_edges(db, sim_id, journeys)
 
     # start off with half of the vcs on the road
@@ -247,7 +232,8 @@ def run_congestion_simulation(db, sim_id, params: Params):
         i += 1
 
         congestion_set = congestion.get_congestion_set(journeys, edges, mask, vehicles_per_journey)
-        delay_set = congestion.get_delay_set_from_congestion(congestion_set, journeys, edges)
+        delay_set = congestion.get_delay_set_from_congestion(congestion_set, journeys, route_options, edges,
+                                                             params.congestion_options)
 
         stats = get_modal_share(route_options, mask, delay_set)
         next_mask = stats["mask"]
@@ -367,7 +353,7 @@ def plot_congestion_for_set(congestion_set, nodes):
         origin_point = (origin_node["y"], origin_node["x"])
         destination_point = (destination_node["y"], destination_node["x"])
 
-        folium.PolyLine([origin_point, destination_point], color=linear(1-speed_factor),
+        folium.PolyLine([origin_point, destination_point], color=linear(1 - speed_factor),
                         opacity=1 - speed_factor).add_to(f_map)
 
     linear.add_to(f_map)

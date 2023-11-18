@@ -3,6 +3,14 @@ import pandas as pd
 import seaborn as sns
 
 from mongo.mongo import get_database
+import vc_extract
+
+
+class CongestionOptions:
+    """
+    Options for the congestion analysis.
+    """
+    max_motorcycle_slowdown = 0.7
 
 
 def find_results_with_osm_nodes(db, sim_id):
@@ -50,6 +58,23 @@ def find_all_journeys(db, sim_id):
     })
 
     return results
+
+
+def find_matching_route_options(db, sim_id, journeys):
+    """
+    Find the corresponding route options for the given journeys
+    :param db: the database
+    :param sim_id: the simulation id
+    :param journeys: the journeys
+    :return: the route options (same order as journeys)
+    """
+    route_options = db["route-options"]
+
+    route_options = list(route_options.find({"sim-id": sim_id}))
+
+    route_options = {option["vc-id"]: option for option in route_options}
+
+    return [route_options[journey["vc-id"]] for journey in journeys]
 
 
 def get_car_routes(journeys, mask=None):
@@ -279,14 +304,21 @@ def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
     return congestion_set
 
 
-def get_leg_delay(leg, edges, congestion_set):
+def get_leg_delay(leg, traveller, edges, congestion_set, options=None):
     """
     Get the delay for a leg.
     :param leg: the leg
+    :param traveller: the traveller that uses the leg
     :param edges: the set of edges
     :param congestion_set: the congestion set (from get_congestion_set)
+    :param options: congestion options
     :return: the delay in seconds
     """
+    if options is None:
+        options = CongestionOptions()
+
+    has_moto = vc_extract.has_motorcycle(traveller)
+
     osm_nodes = leg["osm_nodes"]
 
     edge_keys = [
@@ -307,6 +339,9 @@ def get_leg_delay(leg, edges, congestion_set):
     total_speed_factor = sum([speed_factor * edge["edge"]["length"] for (speed_factor, edge) in
                               zip(speed_factors, edges)]) / total_length
 
+    if has_moto and total_speed_factor > options.max_motorcycle_slowdown:
+        total_speed_factor = options.max_motorcycle_slowdown
+
     planned_duration = leg["endTime"] - leg["startTime"]
 
     actual_duration = planned_duration / total_speed_factor
@@ -314,18 +349,24 @@ def get_leg_delay(leg, edges, congestion_set):
     return actual_duration - planned_duration
 
 
-def get_delay_set_from_congestion(congestion_set, journeys, edges):
+def get_delay_set_from_congestion(congestion_set, journeys, route_options, edges, options=None):
     """
     Get the delay set for the given congestion set.
     :param congestion_set: The congestion set to use
     :param journeys: The journeys to consider
+    :param route_options: The corresponding route options (must be in the same order as the journeys)
     :param edges: Metadata about the edges (street-edge-data)
+    :param options: Congestion options
     :return: A dictionary mapping route-option-ids to the delay for that route option
     """
+    if options is None:
+        options = CongestionOptions()
 
     congestion_delays = {}
 
-    for result in journeys:
+    for (result, route_option) in zip(journeys, route_options):
+        traveller = route_option["traveller"]
+
         for option in result["options"]:
             if option is None:
                 continue
@@ -340,7 +381,7 @@ def get_delay_set_from_congestion(congestion_set, journeys, edges):
                         continue
                     found_car_route = True
 
-                    leg_delay = get_leg_delay(leg, edges, congestion_set)
+                    leg_delay = get_leg_delay(leg, traveller, edges, congestion_set, options)
                     itinerary_delay += leg_delay
 
                 if not found_car_route:
@@ -356,18 +397,22 @@ def get_delay_set_from_congestion(congestion_set, journeys, edges):
     return congestion_delays
 
 
-def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
+def get_delay_set(journeys, route_options, edges, mask=None, vehicles_per_journey=1.0, options=None):
     """
     Get the delay set for the given journeys
     :param journeys: The journeys to consider
+    :param route_options: The corresponding route options (must be in the same order as the journeys)
     :param edges: Metadata about the edges (street-edge-data)
     :param mask: The mask to apply to the journeys. If None, all journeys are considered
     :param vehicles_per_journey: How many vehicles each journey represents
+    :param options: Congestion options
     :return: A dictionary mapping route-option-ids to the delay for that route option
     """
+    if options is None:
+        options = CongestionOptions()
 
     congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
-    get_delay_set_from_congestion(congestion_set, journeys, edges)
+    return get_delay_set_from_congestion(congestion_set, journeys, route_options, edges, options)
 
 
 def plot_delays_for_factors(sim_id, vehicle_factors, total_citizens=1000.0):
@@ -389,10 +434,11 @@ def plot_delays_for_factors(sim_id, vehicle_factors, total_citizens=1000.0):
     vehicle_factors = [vehicles_per_journey * factor for factor in vehicle_factors]
 
     journeys = list(find_results_with_osm_nodes(db, sim_id))
+    route_options = find_matching_route_options(db, sim_id, journeys)
     edges = get_edges(db, sim_id, journeys)
 
     for vehicles_per_journey in vehicle_factors:
-        delay_set = get_delay_set(journeys, edges, mask=None, vehicles_per_journey=vehicles_per_journey)
+        delay_set = get_delay_set(journeys, route_options, edges, mask=None, vehicles_per_journey=vehicles_per_journey)
         print(f"Congestion set for {vehicles_per_journey} vehicles per journey")
 
         # plot distribution of values in delay_set

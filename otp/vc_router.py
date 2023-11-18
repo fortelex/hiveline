@@ -2,14 +2,28 @@ import argparse
 import math
 import os
 import signal
+import threading
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pymongo.errors
 
 import otp
 import otp_builder as builder
 from mongo.mongo import get_database
+
+
+def __reset_jobs(db, sim_id):
+    """
+    Reset all jobs for the given simulation to pending.
+    :param db: the database
+    :return:
+    """
+
+    coll = db["route-calculation-jobs"]
+    coll.update_many({"sim-id": sim_id},
+                     {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
 
 
 def __create_route_calculation_jobs(db):
@@ -57,6 +71,26 @@ def __create_route_calculation_jobs(db):
             jobs_coll.insert_one(job)
         except pymongo.errors.DuplicateKeyError:
             continue  # job was created by other process while iterating
+
+
+def __reset_timed_out_jobs(db):
+    """
+    Reset jobs that have been running for more than 5 minutes.
+    :param db: the database
+    :return:
+    """
+    jobs_coll = db["route-calculation-jobs"]
+
+    jobs_coll.update_many({
+        "status": "running",
+        "started": {
+            "$lt": datetime.now() - timedelta(minutes=5)
+        }
+    }, {
+        "$set": {
+            "status": "pending"
+        }
+    })
 
 
 def __get_route_option(vc, uses_delays, modes):
@@ -112,7 +146,10 @@ def __route_virtual_commuter(vc, uses_delays):
     if "traveller" in vc and "would-use-car" in vc["traveller"] and vc["traveller"]["would-use-car"]:
         mode_combinations += [["WALK", "CAR"]]
 
-    return [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
+    options = [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
+    options = [option for option in options if option is not None]
+
+    return options
 
 
 def __approx_dist(origin, destination):
@@ -223,102 +260,92 @@ def __no_active_jobs(db, sim_id):
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __iterate_jobs(db, sim_id, meta):
-    """
-    Iterate over all pending jobs in the database for a virtual commuter set and calculate routes for them.
-    :param db: the database
-    :param sim_id: the virtual commuter set id
-    :param meta: metadata about the routing process
-    :return: Nothing, all data is pushed to database
-    """
+def __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_delays, meta):
+    options = __route_virtual_commuter(vc, use_delays)
+
+    if options is None or len(options) == 0:
+        raise Exception("No route found")
+
+    # dump options to route-results collection
+    route_results = {
+        "vc-id": vc["vc-id"],
+        "sim-id": vc["sim-id"],
+        "created": datetime.now(),
+        "options": options,
+        "meta": meta
+    }
+
+    try:
+        route_results_coll.insert_one(route_results)
+    except pymongo.errors.DuplicateKeyError:
+        if "_id" in route_results:
+            del route_results["_id"]
+        route_results_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_results})
+
+    # extract relevant data for decision making
+    route_options = {
+        "vc-id": vc["vc-id"],
+        "sim-id": vc["sim-id"],
+        "created": datetime.now(),
+        "traveller": vc["traveller"],
+        "options": [__extract_relevant_data(option) for option in options],
+    }
+
+    try:
+        route_options_coll.insert_one(route_options)
+    except pymongo.errors.DuplicateKeyError:
+        if "_id" in route_options:
+            del route_options["_id"]
+        route_options_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_options})
+
+
+def __iterate_jobs(db, sim_id, meta, debug=False, progress_fac=1):
     jobs_coll = db["route-calculation-jobs"]
+    vc_coll = db["virtual-commuters"]
     route_results_coll = db["route-results"]
     route_options_coll = db["route-options"]
 
-    pipeline = [
-        {
-            "$match": {
-                "status": "pending",
-                "sim-id": sim_id
-            }
-        },
-        {
-            "$lookup": {
-                "from": "virtual-commuters",
-                "localField": "vc-id",
-                "foreignField": "vc-id",
-                "as": "matched_docs"
-            }
-        },
-        {
-            "$match": {
-                "matched_docs": {
-                    "$size": 1
-                }
-            }
-        }
-    ]
+    # get total number of jobs
+    total_jobs = jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"})
 
     use_delays = meta["uses-delay-simulation"]
-
-    jobs_to_calculate = jobs_coll.aggregate(pipeline)
 
     # by default, we will not stop the process if there is one error, but if there are multiple consecutive errors,
     # we will stop the process
     consecutive_error_number = 0
 
-    for doc in jobs_to_calculate:
-        if doc["status"] != "pending":
-            continue
+    print("Running routing algorithm")
 
-        # set status to running
-        jobs_coll.update_one({"_id": doc["_id"]}, {"$set": {"status": "running", "started": datetime.now()}})
+    job_key = 0
+    last_print = 0
 
-        print("Running routing algorithm")
+    while True:
+        job = jobs_coll.find_one_and_update({
+            "status": "pending",
+            "sim-id": sim_id
+        }, {
+            "$set": {
+                "status": "running",
+                "started": datetime.now()
+            }
+        })
+
+        if job is None:
+            break
+
+        job_key += 1
+        percentage = job_key / total_jobs * 100
+        current_time = time.time()
+        if debug and current_time - last_print > 1:
+            print("Progress: ~{:.2f}% {:}".format(percentage * progress_fac, job["vc-id"]))
+            last_print = current_time
 
         try:
-            vc = doc["matched_docs"][0]
-            options = __route_virtual_commuter(vc, use_delays)
-
-            if options is None:
-                raise Exception("No route found")
-
-            # dump options to route-results collection
-            route_results = {
-                "vc-id": vc["vc-id"],
-                "sim-id": vc["sim-id"],
-                "created": datetime.now(),
-                "options": options,
-                "meta": meta
-            }
-
-            try:
-                route_results_coll.insert_one(route_results)
-            except pymongo.errors.DuplicateKeyError:
-                if "_id" in route_results:
-                    del route_results["_id"]
-                route_results_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_results})
-
-            # extract relevant data for decision making
-            route_options = {
-                "vc-id": vc["vc-id"],
-                "sim-id": vc["sim-id"],
-                "created": datetime.now(),
-                "traveller": vc["traveller"],
-                "options": [__extract_relevant_data(option) for option in options],
-            }
-
-            try:
-                route_options_coll.insert_one(route_options)
-            except pymongo.errors.DuplicateKeyError:
-                if "_id" in route_options:
-                    del route_options["_id"]
-                route_options_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_options})
+            vc = vc_coll.find_one({"vc-id": job["vc-id"]})
+            __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_delays, meta)
 
             # set status to finished
-            jobs_coll.update_one({"_id": doc["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
-
-            consecutive_error_number = 0
+            jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
         except Exception as e:
             short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
                                 + str(e)
@@ -326,7 +353,7 @@ def __iterate_jobs(db, sim_id, meta):
             print(short_description)
 
             # set status to failed
-            jobs_coll.update_one({"_id": doc["_id"]},
+            jobs_coll.update_one({"_id": job["_id"]},
                                  {"$set": {"status": "error", "error": short_description, "finished": datetime.now()}})
 
             consecutive_error_number += 1
@@ -334,6 +361,18 @@ def __iterate_jobs(db, sim_id, meta):
             if consecutive_error_number >= 5:
                 print("Too many consecutive errors, stopping")
                 break
+
+
+def __spawn_job_pull_threads(db, sim_id, meta, num_threads=4):
+    threads = []
+
+    for i in range(num_threads):
+        t = threading.Thread(target=__iterate_jobs, args=(db, sim_id, meta, i == 0, num_threads))
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
 
 
 def __wait_for_line(process, line_to_wait_for):
@@ -350,7 +389,8 @@ def __wait_for_line(process, line_to_wait_for):
             break
 
 
-def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4):
+def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4, num_threads=4,
+        reset_jobs=False):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
@@ -359,11 +399,17 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     :param force_graph_rebuild: Whether to force a rebuild of the graph or not
     :param graph_build_memory: The amount of memory to use for the graph build process
     :param server_memory: The amount of memory to use for the OTP server
+    :param num_threads: The number of threads to use for sending route requests to the server
+    :param reset_jobs: Whether to reset all jobs to pending or not
     :return:
     """
     db = get_database()
 
+    if reset_jobs:
+        __reset_jobs(db, sim_id)
+
     __create_route_calculation_jobs(db)
+    __reset_timed_out_jobs(db)
 
     if __no_active_jobs(db, sim_id):
         print("No active jobs, stopping")
@@ -394,7 +440,11 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
         __wait_for_line(proc, "Grizzly server running.")  # that is the last line printed by the server when it is ready
         print("Server started")
 
-        __iterate_jobs(db, sim_id, meta)
+        t = datetime.now()
+
+        __spawn_job_pull_threads(db, sim_id, meta, num_threads)
+
+        print("Finished routing algorithm in " + str(datetime.now() - t))
 
     finally:
         print("Terminating server...")
@@ -411,7 +461,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the routing algorithm for a virtual commuter set')
-    parser.add_argument('sim_id', type=str, help='The virtual commuter set id')
+    parser.add_argument('sim_id', type=str, help='Simulation id')
     parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
     parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
                                                                                                        'force a rebuild of the graph or not')
@@ -419,7 +469,13 @@ if __name__ == "__main__":
                                                                                                      'memory to use for the graph build process (in GB)')
     parser.add_argument('--server-memory', dest='server_memory', type=int, default=4, help='The amount of memory to '
                                                                                            'use for the OTP server (in GB)')
+    parser.add_argument('--num-threads', dest='num_threads', type=int, default=4, help='The number of threads to use '
+                                                                                       'for sending route requests to the server')
+    parser.add_argument('--reset-jobs', dest='reset_jobs', action='store_true', help='Whether to reset all jobs for '
+                                                                                     'this simulation')
 
     args = parser.parse_args()
 
-    run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory)
+    run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory,
+        args.num_threads,
+        args.reset_jobs)

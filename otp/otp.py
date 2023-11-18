@@ -96,7 +96,7 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
     }
 
     # Send the request to the OTP GraphQL endpoint
-    response = requests.post(url, json={'query': query}, headers=headers)
+    response = requests.post(url, json={'query': query}, headers=headers, timeout=20)
 
     # Check if the request was successful
     if response.status_code == 200:

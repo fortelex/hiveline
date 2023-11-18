@@ -15,7 +15,7 @@ default_work_coefficient = 0.3
 
 # workplace parking assumptions
 parking_prob ={
-    'workplace':{
+    'destination':{ # workplace
         'car':{
             'min_prob_bldg_dsty':0.5,
             'min_prob':0.05,
@@ -29,7 +29,7 @@ parking_prob ={
             'max_prob':1.0
         }
     },
-    'home':{
+    'origin':{ # home
         'car':{
             'min_prob_bldg_dsty':0.5,
             'min_prob':0.1,

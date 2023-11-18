@@ -43,13 +43,14 @@ empty_tags = {
     'natural': 'water'
 }
 
-building_tags1 = {
-    'building': ['apartments', 'house', 'commercial', 'retail', 'farm', 'hotel']
-}
-
-building_tags2 = {
-    'building': ['industrial', 'yes'],
-    'landuse':'construction'
+building_tags = {
+    '1':{
+        'building': ['apartments', 'house', 'commercial', 'retail', 'farm', 'hotel']
+        },
+    '2':{
+        'building': ['industrial', 'yes'],
+        'landuse':'construction',
+    }
 }
 
 parking_tags ={

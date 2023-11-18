@@ -82,6 +82,37 @@ class Stats():
             raise Exception(
                 'The dataframe should contains a nuts2 or nuts3 column')
 
+    def mongo_cached(collection, match_field_list, fields, extra_transformation=lambda x:x):
+        '''
+        Decorator to check if data is available in mongo instead of computing it
+        (acts like a cache)
+        Args:
+            loading_function (function): function that loads data from file, outputs a DataFrame or GeoDataFrame
+            collection (str): mongo db collection to search in
+            match_field_list (dict): the dataframe field name to match with the mongodb field,  ex: ['nuts3', 'nuts-3']
+            fields (list of str): list of fields to retrieve from mongodb
+            extra_transformation (function, default is identity): transform the df coming from mongo
+        '''
+        # (almost same as mongo_cached in place.py, later needs to be generalised)
+        # 2 wrappers are needed to pass arguments to the decorator
+        def wrapper1(loading_function):
+            def wrapper2(self): 
+                # search fields in mongo, only for place regions
+                match_ids = self.demographic[match_field_list[0]].to_list()
+                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields)
+                # call loading function if the search result is empty or incomplete
+                if result_df.empty or len(result_df)!=len(match_ids):
+                    print('Data not in db, computing')
+                    data_df, resolution = loading_function(self)
+                else:
+                    print('Data found in db')
+                    data_df = extra_transformation(result_df)
+                    resolution = 'nuts3'
+                # merge the data to local df
+                self.merge_to_demographic(data_df, resolution)
+            return wrapper2
+        return wrapper1
+
     def loader(filepath):
         '''
         Decorator to load demographic data (cleaned from eurostat)
@@ -92,7 +123,7 @@ class Stats():
         '''
         # 2 wrappers are needed to pass arguments to the loader
         def wrapper1(transformation):
-            def wrapper2(self): # *args, **kwargs
+            def wrapper2(self): 
                 df = pd.read_csv(filepath)
                 resolution, regions = self.get_resolution(df)
                 # filter df to keep only wanted regions
@@ -100,29 +131,34 @@ class Stats():
                 # specific transformation if needed 
                 kwargs = {'resolution': resolution} if 'resolution' in inspect.getfullargspec(transformation).args else {}
                 df = transformation(self, df, **kwargs)
-                # add the new data
-                self.merge_to_demographic(df, resolution)
+                # return the new data
+                return df, resolution
             return wrapper2
         return wrapper1
 
+    @mongo_cached(collection='regions', match_field_list=['nuts3', '_id'], fields=['age'], extra_transformation=mongo.transform_regions_from_mongo)
     @loader(filepath=age_file)
     def load_age(self, df, resolution=None):
         # convert to percentages
         df = df_to_percent(df, resolution) 
         return df
     
+    @mongo_cached(collection='regions', match_field_list=['nuts3', '_id'], fields=['vehicle'], extra_transformation=mongo.transform_regions_from_mongo)
     @loader(filepath=motorization_file)
     def load_motorization(self, df):
         return df
 
+    @mongo_cached(collection='regions', match_field_list=['nuts3', '_id'], fields=['income'], extra_transformation=mongo.transform_regions_from_mongo)
     @loader(filepath=income_file)
     def load_income(self, df):
         return df
 
+    @mongo_cached(collection='regions', match_field_list=['nuts3', '_id'], fields=['employment_rate'], extra_transformation=mongo.transform_regions_from_mongo)
     @loader(filepath=employment_rate_file)
     def load_employment_rate(self, df):
         return df
 
+    @mongo_cached(collection='regions', match_field_list=['nuts3', '_id'], fields=['employment_type'], extra_transformation=mongo.transform_regions_from_mongo)
     @loader(filepath=employment_type_file)
     def load_employment_type(self, df):
         # regroup types
@@ -137,6 +173,9 @@ class Stats():
         return df
 
     def load_all(self):
+        '''
+        Load all the demographic data
+        '''
         self.load_age()
         self.load_motorization()
         self.load_income()
@@ -144,6 +183,9 @@ class Stats():
         self.load_employment_type()
 
     def export_to_mongo(self):
+        '''
+        Transform the demographic dataframe and push it to mongodb
+        '''
         df_array = mongo.df_to_dict(self.demographic)
         export_array = []
         # transform the list of dict
@@ -158,10 +200,3 @@ class Stats():
             export_array.append(formatted)
 
         mongo.push_to_collection(self.mongo_db, self.mongo_collection, export_array)
-
-    def pull_from_mongo(self):
-        df = mongo.mongo_to_df(self.mongo_db, self.mongo_collection)
-        df = pd.concat([df]+[pd.DataFrame.from_records(df[p].to_list()).add_prefix(p+'_') for p in self.prefixes], axis=1)
-        df = df.drop(columns=self.prefixes)
-        df = df.rename(columns={'_id': 'nuts3'})
-        return df

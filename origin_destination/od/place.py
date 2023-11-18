@@ -5,9 +5,14 @@ import numpy as np
 import osmnx as ox
 import shapely
 import matplotlib.pyplot as plt
-
 from .tags import *
 from .variables import data_folder, point_area, default_work_coefficient
+import os
+import sys
+from dotenv import load_dotenv
+load_dotenv()
+sys.path.append(os.getenv("PROJECT_PATH"))
+from mongo import mongo
 
 
 def only_geo_points(gdf):
@@ -31,6 +36,9 @@ class Place():
         self.get_tiles()
         # this GeoDataFrame will store the origin destination stats
         self.data = self.tiles.copy()
+        # mongo
+        self.mongo_db = mongo.get_database()
+        self.load_regions()
 
     def get_tiles(self, h3_resolution=8):
         '''
@@ -86,7 +94,8 @@ class Place():
         Args:
             gdf (GeoDataFrame): the gdf to merge, must contains an 'h3' column
         '''
-        gdf = gdf.drop(columns='geometry')
+        if ('geometry' in gdf.columns):
+            gdf = gdf.drop(columns='geometry')
         # remove field if already existing
         for field in gdf.drop(columns='h3').columns:
             if field in self.data.columns:
@@ -94,6 +103,36 @@ class Place():
         # merge to data gdf
         self.data = self.data.merge(gdf, on='h3', how='left')
 
+    def mongo_cached(collection, match_field_list, fields, extra_transformation=lambda x:x):
+        '''
+        Decorator to check if data is available in mongo instead of computing it
+        (acts like a cache)
+        Args:
+            loading_function (function): function that loads data from file, outputs a DataFrame or GeoDataFrame
+            collection (str): mongo db collection to search in
+            match_field_list (dict): the dataframe field name to match with the mongodb field,  ex: ['nuts3', 'nuts-3']
+            fields (list of str): list of fields to retrieve from mongodb
+            extra_transformation (function, default is identity): transform the df coming from mongo
+        '''
+        # 2 wrappers are needed to pass arguments to the decorator
+        def wrapper1(loading_function):
+            def wrapper2(self): 
+                # search fields in mongo, only for place regions
+                match_ids = self.data[match_field_list[0]].to_list()
+                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields)
+                # call loading function if the search result is empty or incomplete
+                if result_df.empty or len(result_df) < len(match_ids):
+                    print('Data not in db, computing')
+                    data_df = loading_function(self)
+                else:
+                    print('Data found in db')
+                    data_df = extra_transformation(result_df)
+                # merge the data to local df
+                self.merge_to_data(data_df)
+            return wrapper2
+        return wrapper1
+    
+    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['population'])
     def load_population(self, median_imputation=True, gpkg_path=data_folder+'population_density/kontur_population_20231101.gpkg'):
         '''
         Load the population data in a GeoDataFrame and add it to self.data
@@ -116,7 +155,7 @@ class Place():
             no_data['population'] = population_gdf['population'].median()
             population_gdf = pd.concat([population_gdf, no_data])
 
-        self.merge_to_data(population_gdf)
+        return population_gdf
 
     def plot_population(self):
         '''
@@ -147,6 +186,7 @@ class Place():
         # keep only points for office as the polygons are badly distributed
         self.zones['work_office'] = only_geo_points(self.zones['work_office'])
 
+    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['education', 'leisure', 'empty', 'work'], extra_transformation=mongo.transform_tiles_from_mongo)
     def load_zoning_data(self):
         '''
         Load the zoning data into the data gdf
@@ -179,16 +219,17 @@ class Place():
         # combine all work zones into one
         work_zones = [k for k in self.zones.keys() if 'work' in k]
         destination['work'] = destination[work_zones].sum(axis=1)
-        # merge to data
-        self.merge_to_data(destination)
 
+        return destination
+
+    @mongo_cached(collection='tiles', match_field_list=['h3', '_id'], fields=['nuts-3'])
     def load_regions(self, nuts_file=data_folder+'nuts/NUTS_RG_01M_2021_4326.geojson'):
         '''
         Get the region of each tile (NUTS 3), and load it to the data
         Args:
             nuts_file (str, default): the geojson file containing the official NUTS European regions
         '''
-        nuts = gpd.read_file(data_folder+'nuts/NUTS_RG_01M_2021_4326.geojson')
+        nuts = gpd.read_file(nuts_file)
         # keep only the most precise level as it contains the other
         nuts3 = nuts[nuts['LEVL_CODE'] == 3][['id', 'geometry']]
         # nuts regions that overlaps with the city
@@ -207,7 +248,14 @@ class Place():
             best_matching_index = place_regions[intersect].intersection(tile['geometry']).to_crs(epsg=6933).area.argmax()
             regions.loc[i, 'nuts3'] = place_regions.iloc[best_matching_index]['id']
 
-        self.merge_to_data(regions)
+        return regions
+    
+    def load_all(self):
+        '''
+        Load all the data
+        '''
+        self.load_population()
+        self.load_zoning_data()
 
     def plot_zoning(self, columns=['population', 'work', 'education', 'leisure'], save_name='filename'):
         '''
@@ -251,3 +299,39 @@ class Place():
             plt.savefig(
                 data_folder+f'visualization/zoning/{save_name}_{city_name}.png', dpi=300)
         plt.show()
+
+    def export_place_to_mongo(self):
+        '''
+        Push the place data to mongodb
+        '''
+        n = self.name.split(', ')
+        data = [{
+            'name': n[0],
+            'country': n[1],
+            'shape': str(self.shape['geometry'][0]),
+            'bbox': str(self.bbox),
+            'tiles': self.tiles['h3'].to_list(),
+            'nuts-3': self.data['nuts3'].unique().tolist(),
+        }]
+        mongo.push_to_collection(self.mongo_db, 'places', data)
+
+    def export_tiles_to_mongo(self):
+        '''
+        Push the tiles and zoning data to mongodb
+        '''
+        id_df = self.data[['h3', 'nuts3', 'geometry']].copy()
+        id_df['geometry'] = id_df['geometry'].astype(str)
+        id_df = id_df.rename(columns={'h3': '_id', 'nuts3': 'nuts-3', 'geometry':'shape'})
+        data_df = self.data[['population', 'education', 'leisure', 'empty']].copy()
+        data_df = pd.concat([id_df, data_df],axis=1)
+        data_array = mongo.df_to_dict(data_df)
+        prefix = 'work'
+        work_df = self.data[[c for c in self.data.columns if prefix in c]].copy()
+        work_df = work_df.rename(columns={prefix:'total'})
+        work_array = mongo.df_to_dict(work_df)
+        # remove prefix
+        work_array = [{k.replace(prefix+'_', ''):v for k,v in d.items()} for d in work_array]
+        # merge work with other data
+        [d.update({'work':work_array[i]}) for i, d in enumerate(data_array)]
+        # push
+        mongo.push_to_collection(self.mongo_db, 'tiles', data_array)

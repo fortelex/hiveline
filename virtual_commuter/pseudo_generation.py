@@ -1,8 +1,14 @@
 import random
 import uuid
 from datetime import datetime, timezone
-
+import os
+import sys
+from dotenv import load_dotenv
+load_dotenv()
+sys.path.append(os.getenv("PROJECT_PATH"))
 from mongo.mongo import get_database
+
+### Deprecated, use for test only ###
 
 place_name = "Paris, France"
 place_id = "d4a5d05a-741f-4d82-9512-87c0413d09ac"

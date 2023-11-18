@@ -147,22 +147,46 @@ class Place():
             'education': ox.features_from_place(self.name, education_tags),
             'leisure': ox.features_from_place(self.name, leisure_tags),
             'empty': ox.features_from_place(self.name, empty_tags),
-            'buildings': ox.features_from_place(self.name, building_tags),
         }
 
         # keep only points for office as the polygons are badly distributed
         self.zones['work_office'] = only_geo_points(self.zones['work_office'])
 
         # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
-        self.zones['buildings'] = only_geo_polygons(self.zones['buildings'])
         self.zones['work_industrial'] = only_geo_polygons(self.zones['work_industrial'])
 
+    def get_zoning_noparkingland(self):
+        '''
+        Get zoning data from Open Street Map for no parking land
+        '''
+        self.zones['no_parking_land'] = ox.features_from_place(self.name, parking_tags)
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['no_parking_land'] = only_geo_polygons(self.zones['no_parking_land'])
+    
+    def get_zoning_buildings1(self):
+        '''
+        Get zoning data from Open Street Map for buildings - batch 1
+        '''
+        self.zones['buildings1'] = ox.features_from_place(self.name, building_tags1)
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['buildings1'] = only_geo_polygons(self.zones['buildings1'])
+
+    
+    def get_zoning_buildings2(self):
+        '''
+        Get zoning data from Open Street Map for buildings - batch 2
+        '''
+        self.zones['buildings2'] = ox.features_from_place(self.name, building_tags2)
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['buildings2'] = only_geo_polygons(self.zones['buildings2'])
+
+                
     def load_zoning_data(self):
         '''
         Load the zoning data into the data gdf
         Measure the areas of zones of interest (work, education, leisure,...) within each tile
         '''
-        self.get_zoning()
+        # self.get_zoning()
         destination = self.tiles.copy()
 
         # area of a whole single hexagonal tile
@@ -191,8 +215,9 @@ class Place():
         destination['work'] = destination[work_zones].sum(axis=1)
 
         # calculate building density for parking
-        destination['bldg_density'] = destination['buildings'] / (tile_area - destination['empty'])
-        
+        destination['bldg_density'] = (destination['buildings1'] + destination['buildings2'] + destination['no_parking_land']) / tile_area
+        destination['tile_area'] = tile_area
+
         # merge to data
         self.merge_to_data(destination)
         

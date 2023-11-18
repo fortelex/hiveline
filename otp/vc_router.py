@@ -12,6 +12,7 @@ import pymongo.errors
 import otp
 import otp_builder as builder
 from mongo.mongo import get_database
+import vc_extract
 
 
 def __reset_jobs(db, sim_id):
@@ -93,17 +94,18 @@ def __reset_timed_out_jobs(db):
     })
 
 
-def __get_route_option(vc, uses_delays, modes):
+def __get_route_option(vc, sim, uses_delays, modes):
     """
     Get a route for a virtual commuter.
     :param vc: The virtual commuter
+    :param sim: The simulation
     :param uses_delays: Whether to use delay simulation or not
     :param modes: The modes to use
     :return:
     """
-    origin = vc["origin"]["coordinates"]
-    destination = vc["destination"]["coordinates"]
-    departure = vc["departure"]
+    origin = vc_extract.extract_origin_loc(vc)
+    destination = vc_extract.extract_destination_loc(vc)
+    departure = vc_extract.extract_departure(vc, sim)
 
     departure_date = departure.strftime("%Y-%m-%d")
     departure_time = departure.strftime("%H:%M")
@@ -126,15 +128,15 @@ def __get_route_option(vc, uses_delays, modes):
 
     return {
         "route-option-id": str(uuid.uuid4()),
-        "origin": vc["origin"],
-        "destination": vc["destination"],
-        "departure": vc["departure"],
+        "origin": origin,
+        "destination": destination,
+        "departure": departure,
         "modes": modes,
         "itineraries": itineraries
     }
 
 
-def __route_virtual_commuter(vc, uses_delays):
+def __route_virtual_commuter(vc, sim, uses_delays):
     """
     Route a virtual commuter. It will calculate available mode combinations and then calculate routes for each of them.
     :param vc:
@@ -143,10 +145,10 @@ def __route_virtual_commuter(vc, uses_delays):
     """
     mode_combinations = [["WALK", "TRANSIT"]]
 
-    if "traveller" in vc and "would-use-car" in vc["traveller"] and vc["traveller"]["would-use-car"]:
+    if vc_extract.has_motor_vehicle(vc):
         mode_combinations += [["WALK", "CAR"]]
 
-    options = [__get_route_option(vc, uses_delays, modes) for modes in mode_combinations]
+    options = [__get_route_option(vc, sim, uses_delays, modes) for modes in mode_combinations]
     options = [option for option in options if option is not None]
 
     return options
@@ -260,8 +262,8 @@ def __no_active_jobs(db, sim_id):
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_delays, meta):
-    options = __route_virtual_commuter(vc, use_delays)
+def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta):
+    options = __route_virtual_commuter(vc, sim, use_delays)
 
     if options is None or len(options) == 0:
         raise Exception("No route found")
@@ -287,7 +289,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_d
         "vc-id": vc["vc-id"],
         "sim-id": vc["sim-id"],
         "created": datetime.now(),
-        "traveller": vc["traveller"],
+        "traveller": vc_extract.extract_traveller(vc),
         "options": [__extract_relevant_data(option) for option in options],
     }
 
@@ -299,11 +301,13 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_d
         route_options_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_options})
 
 
-def __iterate_jobs(db, sim_id, meta, debug=False, progress_fac=1):
+def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
     jobs_coll = db["route-calculation-jobs"]
     vc_coll = db["virtual-commuters"]
     route_results_coll = db["route-results"]
     route_options_coll = db["route-options"]
+
+    sim_id = sim["sim-id"]
 
     # get total number of jobs
     total_jobs = jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"})
@@ -342,7 +346,11 @@ def __iterate_jobs(db, sim_id, meta, debug=False, progress_fac=1):
 
         try:
             vc = vc_coll.find_one({"vc-id": job["vc-id"]})
-            __process_virtual_commuter(route_results_coll, route_options_coll, vc, use_delays, meta)
+
+            should_route = vc_extract.should_route(vc)
+
+            if should_route:
+                __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta)
 
             # set status to finished
             jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
@@ -363,11 +371,11 @@ def __iterate_jobs(db, sim_id, meta, debug=False, progress_fac=1):
                 break
 
 
-def __spawn_job_pull_threads(db, sim_id, meta, num_threads=4):
+def __spawn_job_pull_threads(db, sim, meta, num_threads=4):
     threads = []
 
     for i in range(num_threads):
-        t = threading.Thread(target=__iterate_jobs, args=(db, sim_id, meta, i == 0, num_threads))
+        t = threading.Thread(target=__iterate_jobs, args=(db, sim, meta, i == 0, num_threads))
         t.start()
         threads.append(t)
 
@@ -415,9 +423,9 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
         print("No active jobs, stopping")
         return
 
-    vc_set = db["simulations"].find_one({"sim-id": sim_id})
-    place_resources = db["place-resources"].find_one({"place-id": vc_set["place-id"]})
-    pivot_date = vc_set["pivot-date"]
+    sim = db["simulations"].find_one({"sim-id": sim_id})
+    place_resources = db["place-resources"].find_one({"place-id": sim["place-id"]})
+    pivot_date = sim["pivot-date"]
 
     resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild, graph_build_memory)
 
@@ -442,7 +450,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
 
         t = datetime.now()
 
-        __spawn_job_pull_threads(db, sim_id, meta, num_threads)
+        __spawn_job_pull_threads(db, sim, meta, num_threads)
 
         print("Finished routing algorithm in " + str(datetime.now() - t))
 

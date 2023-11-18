@@ -146,6 +146,7 @@ def __extract_location_transit_feeds(base_url):
     return links, location_name
 
 
+# todo: support mobidatalab, transit.land, navitia, ...
 def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, place_id=None):
     """
     Extracts the links from given web pages and puts them into the database. At least one of geofabrik_url and
@@ -165,8 +166,12 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
     db = get_database()
 
     osm_links = __extract_geo_fabrik(geofabrik_url) if geofabrik_url is not None else []
-    gtfs_links, location_name = __extract_location_transit_feeds(
-        transitfeeds_url) if transitfeeds_url is not None else {}, None
+    gtfs_links = []
+    location_name = None
+
+    if transitfeeds_url is not None:
+        gtfs_links, location_name = __extract_location_transit_feeds(
+            transitfeeds_url)
 
     if place_name is not None:
         location_name = place_name
@@ -188,6 +193,7 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
     db["place-resources"].insert_one(doc)
 
 
-gf_url = "https://download.geofabrik.de/europe/germany/hessen.html"
-tf_url = None
-create_place_resources(gf_url, tf_url, "Wiesbaden")
+gf_url = "https://download.geofabrik.de/europe/germany/bayern/oberbayern.html"
+tf_url = "https://transitfeeds.com/l/734-munich-germany"
+create_place_resources(gf_url, tf_url)
+

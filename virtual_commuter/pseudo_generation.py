@@ -24,6 +24,8 @@ max_lon = 2.5303342
 lat_diff = max_lat - min_lat
 lon_diff = max_lon - min_lon
 
+car_prob = 0.5783358291129846
+
 
 def random_lat():
     return min_lat + (lat_diff * random.random())
@@ -52,6 +54,8 @@ for i in range(num_virtual_commuters):
     origin = points[i * 2]
     destination = points[i * 2 + 1]
 
+    has_car = random.random() < car_prob
+
     vc = {
         "sim-id": sim_id,
         "place-id": place_id,
@@ -66,7 +70,7 @@ for i in range(num_virtual_commuters):
         },
         "traveller": {
             "employment-location-type": "office",
-            "would-use-car": False,
+            "would-use-car": has_car,
             "pc-total-commuters-represented": 1 / num_virtual_commuters
         },
         "created": datetime.now(),

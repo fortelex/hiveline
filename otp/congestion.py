@@ -181,6 +181,52 @@ def get_edges(db, sim_id, journeys):
     return edges
 
 
+def get_nodes(db, sim_id, edges):
+    """
+    Get the nodes for the given simulation id.
+    :param db: the database
+    :param sim_id: the simulation id
+    :param journeys: the journeys to consider
+    :return: a dictionary of nodes and their metadata. keys are OSM node ids, values are dictionaries.
+    """
+    sim = db["simulations"].find_one({"sim-id": sim_id})
+
+    pivot_time = sim["pivot-date"]
+    pivot_time.replace(tzinfo=None)
+    date_str = pivot_time.isoformat()
+
+    node_set = set()
+
+    for (origin, destination) in edges.keys():
+        node_set.add(origin)
+        node_set.add(destination)
+
+    node_list = list(node_set)
+
+    print("Downloading {} nodes".format(len(node_list)))
+
+    chunks = [node_list[x:x + 1000] for x in range(0, len(node_list), 1000)]
+
+    nodes = {}
+
+    node_coll = db["street-node-data"]
+
+    for chunk in chunks:
+        node_ids = [str(node) + "-" + date_str for node in chunk]
+
+        result = list(node_coll.find({"node-id": {"$in": node_ids}}))
+
+        node_id_set = {node["node-id"]: node for node in result}
+
+        node_key_set = {chunk[i]: node_id_set[node_ids[i]] for i in range(len(chunk))}
+
+        nodes.update(node_key_set)
+
+    print("Downloaded {} nodes".format(len(nodes)))
+
+    return nodes
+
+
 def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
     """
     Get the congestion set for the given simulation id.
@@ -218,7 +264,7 @@ def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
             if lanes == 0:
                 lanes = 2
 
-        total_road_capacity = edge["length"] * lanes
+        total_road_capacity = lanes
         road_usage = vehicle_count_per_minute / total_road_capacity
         if road_usage == 0:
             road_usage = 1
@@ -268,16 +314,14 @@ def get_leg_delay(leg, edges, congestion_set):
     return actual_duration - planned_duration
 
 
-def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
+def get_delay_set_from_congestion(congestion_set, journeys, edges):
     """
-    Get the delay set for the given simulation id.
+    Get the delay set for the given congestion set.
+    :param congestion_set: The congestion set to use
     :param journeys: The journeys to consider
     :param edges: Metadata about the edges (street-edge-data)
-    :param mask: The mask to apply to the journeys. If None, all journeys are considered
-    :param vehicles_per_journey: How many vehicles each journey represents
     :return: A dictionary mapping route-option-ids to the delay for that route option
     """
-    congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
 
     congestion_delays = {}
 
@@ -310,6 +354,20 @@ def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
                 break
 
     return congestion_delays
+
+
+def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
+    """
+    Get the delay set for the given journeys
+    :param journeys: The journeys to consider
+    :param edges: Metadata about the edges (street-edge-data)
+    :param mask: The mask to apply to the journeys. If None, all journeys are considered
+    :param vehicles_per_journey: How many vehicles each journey represents
+    :return: A dictionary mapping route-option-ids to the delay for that route option
+    """
+
+    congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
+    get_delay_set_from_congestion(congestion_set, journeys, edges)
 
 
 def plot_delays_for_factors(sim_id, vehicle_factors, total_citizens=1000.0):

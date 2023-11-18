@@ -3,13 +3,13 @@ import folium
 import traces
 from mongo.mongo import get_database
 
-sim_id = "df0d05a9-d8d8-443a-b53b-a513f4baee8e"
+sim_id = "e0713278-78a1-4b95-88bb-d54df24f7d5e"
 
 db = get_database()
 
 route_results = db["route-results"]
 
-results = route_results.find({"sim-id": sim_id, "vc-id": "0905df4b-fe6d-41b0-a266-1aedbeff6c78"})
+results = route_results.find({"sim-id": sim_id})
 
 to_plot = traces.extract_traces(results)
 #to_plot = traces.get_simulation_traces(db, sim_id)

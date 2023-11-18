@@ -121,7 +121,7 @@ class Place():
                 match_ids = self.data[match_field_list[0]].to_list()
                 result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields)
                 # call loading function if the search result is empty or incomplete
-                if result_df.empty or len(result_df)!=len(match_ids):
+                if result_df.empty or len(result_df) < len(match_ids):
                     print('Data not in db, computing')
                     data_df = loading_function(self)
                 else:
@@ -249,6 +249,13 @@ class Place():
             regions.loc[i, 'nuts3'] = place_regions.iloc[best_matching_index]['id']
 
         return regions
+    
+    def load_all(self):
+        '''
+        Load all the data
+        '''
+        self.load_population()
+        self.load_zoning_data()
 
     def plot_zoning(self, columns=['population', 'work', 'education', 'leisure'], save_name='filename'):
         '''

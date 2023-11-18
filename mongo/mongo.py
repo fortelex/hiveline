@@ -90,3 +90,8 @@ def search(db, collection, match_field ,match_ids, fields):
     df = df.rename(columns=match_dict)
     return df
 
+def get_place_id(db, place_name):
+    name, country = place_name.split(', ')
+    place_id = db['places'].find({'name': name, 'country': country}, {'_id': 1})
+    place_id = place_id[0]['_id']
+    return place_id

@@ -1,12 +1,23 @@
+import math
+import random
+
+import numpy as np
+from matplotlib import pyplot as plt
+
 from mongo.mongo import get_database
 import vc_extract
+import congestion
+
+transit_modes = ["bus", "rail", "tram", "subway"]
 
 
-def run_decisions(db, sim_id):
-    route_options = db["route-options"]
+class Params:
+    num_citizens = 2000000
+    vehicle_factor = 0.0012
+    vcs_car_usage_start = 0.5
+    mix_factor = 0.1
 
-    results = route_options.find({"sim-id": sim_id})
-
+def get_modal_share(route_options, mask=None, delay_set=None):
     total_car_meters = 0
     total_transit_meters = 0
 
@@ -14,30 +25,49 @@ def run_decisions(db, sim_id):
     total_transit_passengers = 0
     total_walkers = 0
 
-    transit_modes = ["bus", "rail", "tram", "subway"]
-
     car_owners_choosing_cars = 0
     car_owners_choosing_transit = 0
     car_owners_choosing_walk = 0
 
-    for result in results:
+    i = -1
+
+    out_mask = None if mask is None else [True] * len(mask)  # get mask with delay set
+
+    # get mask with delay set
+    for result in route_options:
+        i += 1
+
+        if out_mask is not None:
+            out_mask[i] = False
+
         options = result["options"]
 
         has_car = vc_extract.has_motor_vehicle(result["traveller"])  # does the vc own a car?
 
         # choose the fastest option
         fastest_option = None
+        fastest_option_duration = 0
 
         for option in options:
             if option is None:
                 continue
 
+            option_duration = option["route-duration"]
+            option_id = option["route-option-id"]
+            option_delay = 0
+            if delay_set is not None and option_id in delay_set:
+                option_delay = delay_set[option_id]
+
+            option_duration += option_delay
+
             if fastest_option is None:
                 fastest_option = option
+                fastest_option_duration = option_duration
                 continue
 
-            if option["route-duration"] < fastest_option["route-duration"]:
+            if option_duration < fastest_option_duration:
                 fastest_option = option
+                fastest_option_duration = option_duration
 
         if fastest_option is None:
             continue
@@ -69,6 +99,9 @@ def run_decisions(db, sim_id):
 
             print(f"Unknown mode: {mode}")
 
+        if out_mask is not None:
+            out_mask[i] = is_car  # if the fastest mode is a car, use a car
+
         if is_car and is_transit:
             print("Mixed mode trip. Skipping.")
             continue
@@ -90,33 +123,141 @@ def run_decisions(db, sim_id):
             total_transit_meters += length
             total_transit_passengers += 1
 
-        total_walkers += 1
+        if not is_car and not is_transit:
+            total_walkers += 1
 
-    print(f"Total car meters: {total_car_meters}")
-    print(f"Total transit meters: {total_transit_meters}")
+    return {
+        "total_car_meters": total_car_meters,
+        "total_transit_meters": total_transit_meters,
+        "total_car_passengers": total_car_passengers,
+        "total_transit_passengers": total_transit_passengers,
+        "total_walkers": total_walkers,
+        "car_owners_choosing_cars": car_owners_choosing_cars,
+        "car_owners_choosing_transit": car_owners_choosing_transit,
+        "car_owners_choosing_walk": car_owners_choosing_walk,
+        "mask": out_mask
+    }
 
-    print(f"Total car passengers: {total_car_passengers}")
-    print(f"Total transit passengers: {total_transit_passengers}")
 
-    print(f"Total walkers: {total_walkers}")
+def get_transit_modal_share(stats):
+    total_car_meters = stats["total_car_meters"]
+    total_transit_meters = stats["total_transit_meters"]
 
-    print(f"Car owners choosing cars: {car_owners_choosing_cars}")
-    print(f"Car owners choosing transit: {car_owners_choosing_transit}")
-    print(f"Car owners choosing walk: {car_owners_choosing_walk}")
+    total_car_passengers = stats["total_car_passengers"]
+    total_transit_passengers = stats["total_transit_passengers"]
 
     car_passenger_meters = total_car_meters * total_car_passengers
     transit_passenger_meters = total_transit_meters * total_transit_passengers
 
     total_passenger_meters = car_passenger_meters + transit_passenger_meters
 
-    transit_modal_share = transit_passenger_meters / total_passenger_meters
+    return transit_passenger_meters / total_passenger_meters
+
+
+def run_decisions(db, sim_id):
+    route_options = db["route-options"]
+
+    results = route_options.find({"sim-id": sim_id})
+
+    stats = get_modal_share(results)
+
+    print(stats)
+
+    transit_modal_share = get_transit_modal_share(stats)
 
     print(f"Transit modal share: {transit_modal_share * 100}%")
 
 
-def run_congestion_decision(db, sim_id):
+def find_matching_route_options(db, sim_id, journeys):
+    route_options = db["route-options"]
+
+    route_options = list(route_options.find({"sim-id": sim_id}))
+
+    route_options = {option["vc-id"]: option for option in route_options}
+
+    return [route_options[journey["vc-id"]] for journey in journeys]
 
 
+def run_congestion_decision(db, sim_id, params: Params):
+    # count route-results
+    num_results = db["route-results"].count_documents({"sim-id": sim_id})
 
-database = get_database()
-run_decisions(database, "735a3098-8a19-4252-9ca8-9372891e90b3")
+    vehicles_per_journey = params.vehicle_factor * params.num_citizens / num_results
+    print(f"Vehicles per journey: {vehicles_per_journey}")
+
+    journeys = list(congestion.find_all_journeys(db, sim_id))
+    route_options = find_matching_route_options(db, sim_id, journeys)
+    edges = congestion.get_edges(db, sim_id, journeys)
+
+    # start off with half of the vcs on the road
+
+    mask = [random.random() < params.vcs_car_usage_start for _ in range(len(journeys))]
+    last_modal_share = None
+
+    print(mask)
+
+    i = -1
+
+    while True:
+        i += 1
+
+        delay_set = congestion.get_delay_set(journeys, edges, mask, vehicles_per_journey)
+
+        stats = get_modal_share(route_options, mask, delay_set)
+        next_mask = stats["mask"]
+
+        modal_share = get_transit_modal_share(stats)
+
+        print(f"Iteration {i} - transit modal share: {modal_share * 100}%")
+
+        if last_modal_share is None:
+            last_modal_share = modal_share
+            continue
+
+        diff = abs(modal_share - last_modal_share)
+        if diff < 0.001:
+            break
+
+        last_modal_share = modal_share
+
+        # update mask
+        for j in range(len(mask)):
+            if random.random() < params.mix_factor:
+                mask[j] = next_mask[j]
+
+    return last_modal_share
+
+
+def plot_vehicle_factors(sim_id):
+    plot_factors(sim_id, "vehicle_factor", 0.0001 * np.arange(1, 100, 10))
+
+
+def plot_mix_factors(sim_id):
+    plot_factors(sim_id, "mix_factor", np.arange(0.1, 1, 0.1))
+
+
+def plot_vcs_car_usage_start(sim_id):
+    plot_factors(sim_id, "vcs_car_usage_start", np.arange(0.1, 1, 0.1))
+
+
+def plot_factors(sim_id, factor_key, factors):
+    db = get_database()
+    params = Params()
+
+    modal_shares = []
+
+    for factor in factors:
+        setattr(params, factor_key, factor)
+
+        modal_share = run_congestion_decision(db, sim_id, params)
+
+        modal_shares.append(modal_share)
+
+    # plot factor vs modal share
+    plt.plot(factors, modal_shares)
+    plt.xlabel(factor_key)
+    plt.ylabel("Transit modal share")
+    plt.show()
+
+
+plot_vcs_car_usage_start("735a3098-8a19-4252-9ca8-9372891e90b3")

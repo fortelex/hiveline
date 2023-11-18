@@ -30,7 +30,17 @@ def find_results_with_osm_nodes(db, sim_id):
     return results
 
 
-def get_vc_routes(journeys, mask=None):
+def find_all_journeys(db, sim_id):
+    route_results = db["route-results"]
+
+    results = route_results.find({
+        "sim-id": sim_id
+    })
+
+    return results
+
+
+def get_car_routes(journeys, mask=None):
     vc_routes = []
 
     has_mask = mask is not None
@@ -74,20 +84,17 @@ def get_vc_routes(journeys, mask=None):
 
 
 def get_usage_set(journeys, mask=None, vehicles_per_journey=1.0):
-    vc_routes = get_vc_routes(journeys, mask)
+    car_routes = get_car_routes(journeys, mask)
 
-    total_weight = sum([vc["weight"] for vc in vc_routes])
+    total_weight = sum([vc["weight"] for vc in car_routes])
 
-    total_num_vehicles = len(journeys) * vehicles_per_journey
+    total_num_vehicles = len(car_routes) * vehicles_per_journey
 
-    if mask is not None:
-        total_num_vehicles = sum(mask) * vehicles_per_journey
-
-    weight_factor = total_num_vehicles / total_weight
+    weight_factor = total_num_vehicles / total_weight if total_weight > 0 else 0
 
     usage_set = {}
 
-    for vc in vc_routes:
+    for vc in car_routes:
         routes = vc["routes"]
         weight = vc["weight"]
 
@@ -152,10 +159,10 @@ def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
     congestion_set = {}
 
     for (origin, destination), vehicle_count_per_minute in usage_set.items():
-        if (origin, destination) in edges:
-            edge = edges[(origin, destination)]["edge"]
-        else:
-            edge = edges[(destination, origin)]["edge"]
+        if origin > destination:
+            raise ValueError("Origin is greater than destination")
+
+        edge = edges[(origin, destination)]["edge"]
 
         lanes = 2
 
@@ -196,8 +203,14 @@ def get_leg_delay(leg, edges, congestion_set):
         (osm_nodes[i], osm_nodes[i + 1]) if osm_nodes[i] < osm_nodes[i + 1] else (osm_nodes[i + 1], osm_nodes[i]) for i
         in range(len(osm_nodes) - 1)]
 
+    for (origin, destination) in edge_keys:
+        if origin > destination:
+            raise ValueError("Origin is greater than destination")
+
     edges = [edges[key] for key in edge_keys]
-    speed_factors = [congestion_set[key] for key in edge_keys]
+
+    # if a key is not in congestion_set, no active car visited that edge, so speed factor is 1
+    speed_factors = [congestion_set[key] if key in congestion_set else 1 for key in edge_keys]
 
     # total speed factor is the weighted average of speed factors for each edge (weighted by edge length)
     total_length = sum([edge["edge"]["length"] for edge in edges])
@@ -212,6 +225,14 @@ def get_leg_delay(leg, edges, congestion_set):
 
 
 def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
+    """
+    Get the delay set for the given simulation id.
+    :param journeys: The journeys to consider
+    :param edges: Metadata about the edges (street-edge-data)
+    :param mask: The mask to apply to the journeys. If None, all journeys are considered
+    :param vehicles_per_journey: How many vehicles each journey represents
+    :return: A dictionary mapping route-option-ids to the delay for that route option
+    """
     congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
 
     congestion_delays = {}
@@ -237,8 +258,8 @@ def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
                 if not found_car_route:
                     continue
 
-                congestion_key = (option["route-option-id"], index)
-                congestion_delays[congestion_key] = itinerary_delay / 60  # minutes
+                congestion_key = option["route-option-id"]
+                congestion_delays[congestion_key] = itinerary_delay
 
                 break
             if found_car_route:

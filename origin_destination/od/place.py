@@ -6,7 +6,7 @@ import osmnx as ox
 import shapely
 import matplotlib.pyplot as plt
 from .tags import *
-from .variables import data_folder, point_area, default_work_coefficient
+from .variables import data_folder, point_area, default_work_coefficient, parking_prob
 import os
 import sys
 from dotenv import load_dotenv
@@ -21,6 +21,11 @@ def only_geo_points(gdf):
     '''
     return gdf[gdf['geometry'].geom_type == 'Point']
 
+def only_geo_polygons(gdf):
+    '''
+    Filters only geo polygons from a GeoDataFrame
+    '''
+    return gdf[gdf['geometry'].geom_type == 'Polygon']
 
 class Place():
 
@@ -34,6 +39,7 @@ class Place():
         self.shape = ox.geocode_to_gdf(self.name)
         self.bbox = self.shape.envelope[0]
         self.get_tiles()
+        self.zones = {}
         # this GeoDataFrame will store the origin destination stats
         self.data = self.tiles.copy()
         # mongo
@@ -186,13 +192,38 @@ class Place():
         # keep only points for office as the polygons are badly distributed
         self.zones['work_office'] = only_geo_points(self.zones['work_office'])
 
-    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['education', 'leisure', 'empty', 'work'], extra_transformation=mongo.transform_tiles_from_mongo)
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['work_industrial'] = only_geo_polygons(self.zones['work_industrial'])
+
+    def get_zoning_noparkingland(self):
+        '''
+        Get zoning data from Open Street Map for no parking land
+        '''
+        self.zones['no_parking_land'] = ox.features_from_place(self.name, parking_tags)
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['no_parking_land'] = only_geo_polygons(self.zones['no_parking_land'])
+    
+    def get_zoning_buildings(self, batch_nb):
+        '''
+        Get zoning data from Open Street Map for buildings
+        Args:
+            batch_nb (str): '1' or '2', the batch to get
+        '''
+        self.zones['buildings'+batch_nb] = ox.features_from_place(self.name, building_tags[batch_nb])
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['buildings'+batch_nb] = only_geo_polygons(self.zones['buildings'+batch_nb])
+
+
+    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['education', 'leisure', 'empty', 'work', 'building_density'], extra_transformation=mongo.transform_tiles_from_mongo)
     def load_zoning_data(self):
         '''
         Load the zoning data into the data gdf
         Measure the areas of zones of interest (work, education, leisure,...) within each tile
         '''
         self.get_zoning()
+        self.get_zoning_noparkingland()
+        self.get_zoning_buildings('1')
+        self.get_zoning_buildings('2')
         destination = self.tiles.copy()
 
         # area of a whole single hexagonal tile
@@ -219,7 +250,47 @@ class Place():
         # combine all work zones into one
         work_zones = [k for k in self.zones.keys() if 'work' in k]
         destination['work'] = destination[work_zones].sum(axis=1)
+        # calculate building density for parking
+        destination['building_density'] = (destination['buildings1'] + destination['buildings2'] + destination['no_parking_land']) / tile_area
+        destination = destination.drop(columns=['buildings1', 'buildings2', 'no_parking_land'])
+        return destination
+        
+    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['parking'], extra_transformation=mongo.transform_tiles_from_mongo)
+    def load_parking_data(self):
+        '''
+        Approximate parking probabilities based on building density and input variables 
+        '''
+        destination = self.data[['h3', 'building_density']].copy()
+        
+        # get global parking variables
+        prkg_locations = parking_prob.keys()
+        prkg_vehicles = parking_prob['destination'].keys()
 
+        # calculate parking probabilities for each tile
+        for i, tile in destination.iterrows():
+
+            dsty = destination.loc[i,'building_density']
+            for p in prkg_locations:
+                for v in prkg_vehicles:
+                        
+                    # print(p, v)
+                    # print(parking_prob[p][v])
+                    min_prob_bldg_dsty = parking_prob[p][v]['min_prob_bldg_dsty']
+                    min_prob = parking_prob[p][v]['min_prob']
+                    max_prob_bldg_dsty = parking_prob[p][v]['max_prob_bldg_dsty']
+                    max_prob = parking_prob[p][v]['max_prob']
+                    
+                    if dsty >= min_prob_bldg_dsty:
+                        prob =  min_prob
+                    elif dsty <= max_prob_bldg_dsty:
+                        prob = max_prob
+                    else: # min_prob_bldg_dsty > dsty > max_prob_bldg_dsty
+                        prob = np.round( max_prob - (max_prob - min_prob) * (dsty - max_prob_bldg_dsty)/(min_prob_bldg_dsty - max_prob_bldg_dsty), 4)
+
+                    # add columns to destination dataframe
+                    destination.loc[i,f'parking_{p}_{v}'] = prob
+        
+        destination = destination.drop(columns='building_density')
         return destination
 
     @mongo_cached(collection='tiles', match_field_list=['h3', '_id'], fields=['nuts-3'])
@@ -256,6 +327,7 @@ class Place():
         '''
         self.load_population()
         self.load_zoning_data()
+        self.load_parking_data()
 
     def plot_zoning(self, columns=['population', 'work', 'education', 'leisure'], save_name='filename'):
         '''
@@ -325,13 +397,14 @@ class Place():
         data_df = self.data[['population', 'education', 'leisure', 'empty']].copy()
         data_df = pd.concat([id_df, data_df],axis=1)
         data_array = mongo.df_to_dict(data_df)
-        prefix = 'work'
-        work_df = self.data[[c for c in self.data.columns if prefix in c]].copy()
-        work_df = work_df.rename(columns={prefix:'total'})
-        work_array = mongo.df_to_dict(work_df)
-        # remove prefix
-        work_array = [{k.replace(prefix+'_', ''):v for k,v in d.items()} for d in work_array]
-        # merge work with other data
-        [d.update({'work':work_array[i]}) for i, d in enumerate(data_array)]
+        for prefix in ['work', 'parking']:
+            prefix_df = self.data[[c for c in self.data.columns if prefix in c]].copy()
+            if prefix=='work':
+                prefix_df = prefix_df.rename(columns={prefix:'total'})
+            prefix_array = mongo.df_to_dict(prefix_df)
+            # remove prefix
+            prefix_array = [{k.replace(prefix+'_', ''):v for k,v in d.items()} for d in prefix_array]
+            # merge work with other data
+            [d.update({prefix: prefix_array[i]}) for i, d in enumerate(data_array)]
         # push
         mongo.push_to_collection(self.mongo_db, 'tiles', data_array)

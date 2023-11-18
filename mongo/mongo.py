@@ -45,11 +45,16 @@ def transform_tiles_from_mongo(df):
     Args:
         df (pd.DataFrame): the df coming directly from mongo, that needs to be transformed
     '''
-    prefix = 'work'
+    if 'work' in df.columns:
+        prefix = 'work'
+    elif 'parking' in df.columns:
+        prefix = 'parking'
     # extract work sub dict to df
     df = pd.concat([df, pd.DataFrame.from_records(df[prefix].to_list()).add_prefix(prefix+'_')], axis=1)
     df = df.drop(columns=prefix)
-    df = df.rename(columns={'_id': 'h3', 'nuts-3': 'nuts3', 'shape': 'geometry', 'work_total': 'work'})
+    df = df.rename(columns={'_id': 'h3', 'nuts-3': 'nuts3', 'shape': 'geometry'})
+    if prefix=='work':
+        df = df.rename(columns={'work_total': 'work'})
     return df
 
 def transform_regions_from_mongo(df):

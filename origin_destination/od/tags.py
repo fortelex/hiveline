@@ -42,3 +42,18 @@ empty_tags = {
     'landuse': landuse_dict['empty'],
     'natural': 'water'
 }
+
+building_tags = {
+    '1':{
+        'building': ['apartments', 'house', 'commercial', 'retail', 'farm', 'hotel']
+        },
+    '2':{
+        'building': ['industrial', 'yes'],
+        'landuse':'construction',
+    }
+}
+
+parking_tags ={
+    'landuse': ['allotments', 'farmland', 'animal_keeping', 'flowerbed', 'forest', 'grass', 'greenhouse_horticulture', 'meadow', 'orchard', 'plant_nursery', 'vineyard', 'village_green', 'greenfield', 'brownfield', 'landfill', 'cemetery', 'military', 'railway'],
+    'natural': ['water','wood','riverbed']
+}   

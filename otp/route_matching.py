@@ -1,15 +1,14 @@
-import os
-import re
+import argparse
 import threading
 import time
 from datetime import datetime
 
-import argparse
+import bson.errors
 import osmnx as ox
 import pymongo.errors
 
-from mongo.mongo import get_database
 import historical_osmnx
+from mongo.mongo import get_database
 
 
 def __create_matching_jobs(db, sim_id):
@@ -210,6 +209,9 @@ def __iterate_jobs(db, sim_id, graph, graph_undirected, debug=False, progress_fa
             })
 
         except Exception as e:
+            if True:
+                raise e
+
             short_description = "Exception occurred while running matching algorithm: " + e.__class__.__name__ + ": " \
                                 + str(e)
 
@@ -247,7 +249,114 @@ def __spawn_job_pull_threads(db, sim_id, graph, graph_undirected, num_threads=4)
         t.join()
 
 
-def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False):
+def __find_results_with_osm_nodes(db, sim_id):
+    route_results = db["route-results"]
+
+    results = route_results.find({
+        "sim-id": sim_id,
+        "options": {
+            "$elemMatch": {
+                "itineraries": {
+                    "$elemMatch": {
+                        "legs": {
+                            "$elemMatch": {
+                                "osm_nodes": {
+                                    "$exists": True
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
+
+    return results
+
+
+def __dump_used_edge_metadata(db, sim_id, graph, graph_undirected):
+    results = __find_results_with_osm_nodes(db, sim_id)
+
+    edge_set = set()
+
+    for result in results:
+        for option in result["options"]:
+            if option is None:
+                continue
+
+            found_car_route = False
+
+            for itinerary in option["itineraries"]:
+                iti_routes = []
+
+                for leg in itinerary["legs"]:
+                    if "osm_nodes" in leg:
+                        iti_routes.append(leg["osm_nodes"])
+
+                if len(iti_routes) == 0:
+                    continue
+
+                for route in iti_routes:
+                    for i in range(len(route) - 1):
+                        edge = (route[i], route[i + 1])
+                        edge_set.add(edge)
+
+                found_car_route = True
+                break
+
+            if found_car_route:
+                break
+
+    edge_count = len(edge_set)
+    print("Dumping {} edges".format(edge_count))
+
+    sim = db["simulations"].find_one({"sim-id": sim_id})
+
+    pivot_date = sim["pivot-date"]
+    pivot_date_str = pivot_date.isoformat()
+
+    edge_data_coll = db["street-edge-data"]
+
+    progress = 0
+    last_print = 0
+
+    for edge in edge_set:
+        progress += 1
+
+        if time.time() - last_print > 1:
+            print("Progress: {:.2f}%".format(progress / edge_count * 100))
+            last_print = time.time()
+
+        origin = edge[0]
+        destination = edge[1]
+
+        if origin > destination:
+            origin, destination = destination, origin
+
+        edge_id = str(origin) + "-" + str(destination) + "-" + pivot_date_str
+        edge = graph_undirected.edges[origin, destination, 0].copy()
+
+        if "geometry" in edge:
+            del edge["geometry"]
+
+        edge_data = {
+            "edge-id": edge_id,
+            "edge": edge
+        }
+
+        try:
+            edge_data_coll.insert_one(edge_data)
+        except pymongo.errors.DuplicateKeyError:
+            pass
+        except bson.errors.InvalidDocument as e:
+            print("Invalid document: " + str(edge_data))
+            print(e)
+
+            for key in edge.keys():
+                print(f"{key}: {edge[key]}, type: {type(edge[key])}")
+
+
+def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recalc_edge_data=False):
     """
     Run the matching algorithm for the given simulation id.
     :param sim_id: the simulation id
@@ -263,7 +372,18 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False):
         __reset_jobs(db, sim_id)
 
     if __no_active_jobs(db, sim_id):
-        print("No active jobs, exiting. Use --reset-jobs to reset all jobs.")
+        if recalc_edge_data:
+            print("No active jobs, skipping matching algorithm. Recalculating edge metadata...")
+            graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=False)
+            graph_undirected = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
+            print("Dumping used edge metadata")
+            t = time.time()
+            __dump_used_edge_metadata(db, sim_id, graph, graph_undirected)
+            print("Dumping finished in {:.2f} seconds".format(time.time() - t))
+            return
+
+        print(
+            "No active jobs, exiting. Use --reset-jobs to reset all jobs. Use --recalc-edge-data to recalculate edge metadata for finished jobs.")
         return
 
     graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=False)
@@ -275,6 +395,11 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False):
     __spawn_job_pull_threads(db, sim_id, graph, graph_undirected, num_threads=num_threads)
     print("Matching algorithm finished in {:.2f} seconds".format(time.time() - t))
 
+    print("Dumping used edge metadata")
+    t = time.time()
+    __dump_used_edge_metadata(db, sim_id, graph, graph_undirected)
+    print("Dumping finished in {:.2f} seconds".format(time.time() - t))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the matching algorithm for the given simulation id.')
@@ -283,7 +408,8 @@ if __name__ == "__main__":
                         help='the place name. If not provided, the place name will fallback to the one in the database')
     parser.add_argument('--num-threads', type=int, default=4, help='the number of threads to use')
     parser.add_argument('--reset-jobs', action='store_true', help='reset all jobs of the simulation')
+    parser.add_argument('--recalc-edge-data', action='store_true', help='recalculate edge metadata for finished jobs')
 
     args = parser.parse_args()
 
-    run_matching(args.sim_id, args.place_name, args.num_threads, args.reset_jobs)
+    run_matching(args.sim_id, args.place_name, args.num_threads, args.reset_jobs, args.recalc_edge_data)

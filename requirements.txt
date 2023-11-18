@@ -1,0 +1,6 @@
+h3==3.7.6
+pymongo==4.6.0
+osmnx==1.7.1
+numpy==1.26.1
+geopandas==0.14.0
+shapely==2.0.2

@@ -42,3 +42,8 @@ empty_tags = {
     'landuse': landuse_dict['empty'],
     'natural': 'water'
 }
+
+building_tags = {
+    'building': ['apartments', 'house', 'commercial', 'retail', 'farm', 'hotel', 'industrial', 'yes'],
+    'landuse':'construction'
+}

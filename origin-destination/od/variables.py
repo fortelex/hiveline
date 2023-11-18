@@ -12,3 +12,35 @@ motorization_file = data_folder + \
 point_area = 100  # m²
 # non empty places are accounted as workplaces according to that coefficient
 default_work_coefficient = 0.3
+
+# workplace parking assumptions
+parking_prob ={
+    'workplace':{
+        'car':{
+            'min_prob_bldg_dsty':0.5,
+            'min_prob':0.05,
+            'max_prob_bldg_dsty':0.05,
+            'max_prob':1.0
+        },
+        'motorcycle':{
+            'min_prob_bldg_dsty':0.5,
+            'min_prob':0.2,
+            'max_prob_bldg_dsty':0.05,
+            'max_prob':1.0
+        }
+    },
+    'home':{
+        'car':{
+            'min_prob_bldg_dsty':0.5,
+            'min_prob':0.1,
+            'max_prob_bldg_dsty':0.05,
+            'max_prob':1.0
+        },
+        'motorcycle':{
+            'min_prob_bldg_dsty':0.5,
+            'min_prob':0.4,
+            'max_prob_bldg_dsty':0.05,
+            'max_prob':1.0
+        }
+    }
+}

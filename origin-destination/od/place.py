@@ -7,7 +7,7 @@ import shapely
 import matplotlib.pyplot as plt
 
 from .tags import *
-from .variables import data_folder, point_area, default_work_coefficient
+from .variables import data_folder, point_area, default_work_coefficient, parking_prob
 
 
 def only_geo_points(gdf):
@@ -16,6 +16,11 @@ def only_geo_points(gdf):
     '''
     return gdf[gdf['geometry'].geom_type == 'Point']
 
+def only_geo_polygons(gdf):
+    '''
+    Filters only geo polygons from a GeoDataFrame
+    '''
+    return gdf[gdf['geometry'].geom_type == 'Polygon']
 
 class Place():
 
@@ -142,10 +147,15 @@ class Place():
             'education': ox.features_from_place(self.name, education_tags),
             'leisure': ox.features_from_place(self.name, leisure_tags),
             'empty': ox.features_from_place(self.name, empty_tags),
+            'buildings': ox.features_from_place(self.name, building_tags),
         }
 
         # keep only points for office as the polygons are badly distributed
         self.zones['work_office'] = only_geo_points(self.zones['work_office'])
+
+        # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
+        self.zones['buildings'] = only_geo_polygons(self.zones['buildings'])
+        self.zones['work_industrial'] = only_geo_polygons(self.zones['work_industrial'])
 
     def load_zoning_data(self):
         '''
@@ -179,6 +189,53 @@ class Place():
         # combine all work zones into one
         work_zones = [k for k in self.zones.keys() if 'work' in k]
         destination['work'] = destination[work_zones].sum(axis=1)
+
+        # calculate building density for parking
+        destination['bldg_density'] = destination['buildings'] / (tile_area - destination['empty'])
+        
+        # merge to data
+        self.merge_to_data(destination)
+        
+    def load_parking_data(self):
+        '''
+        Approximate parking probabilities based on building density and input variables 
+        '''
+        destination = self.data.copy()
+        
+        # get global parking variables
+        prkg_locations = parking_prob.keys()
+        prkg_vehicles = parking_prob['workplace'].keys()
+
+        # calculate parking probabilities for each tile
+        for i, tile in destination.iterrows():
+
+            dsty = destination.loc[i,'bldg_density']
+            dict = {}
+            for p in prkg_locations:
+                for v in prkg_vehicles:
+                        
+                    # print(p, v)
+                    # print(parking_prob[p][v])
+                    min_prob_bldg_dsty = parking_prob[p][v]['min_prob_bldg_dsty']
+                    min_prob = parking_prob[p][v]['min_prob']
+                    max_prob_bldg_dsty = parking_prob[p][v]['max_prob_bldg_dsty']
+                    max_prob = parking_prob[p][v]['max_prob']
+                    
+                    if dsty >= min_prob_bldg_dsty:
+                        prob =  min_prob
+                    elif dsty <= max_prob_bldg_dsty:
+                        prob = max_prob
+                    else: # min_prob_bldg_dsty > dsty > max_prob_bldg_dsty
+                        prob = np.round( max_prob - (max_prob - min_prob) * (dsty - max_prob_bldg_dsty)/(min_prob_bldg_dsty - max_prob_bldg_dsty), 4)
+
+                    dict[p + '_' + v] = prob
+            
+            # add columns to destination dataframe
+            destination.loc[i,'work_car_parking'] = dict['workplace_car']
+            destination.loc[i,'work_motorcycle_parking'] = dict['workplace_motorcycle']
+            destination.loc[i,'home_car_parking'] = dict['home_car']
+            destination.loc[i,'home_motorcycle_parking'] = dict['home_motorcycle']
+
         # merge to data
         self.merge_to_data(destination)
 

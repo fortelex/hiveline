@@ -12,12 +12,24 @@ transit_modes = ["bus", "rail", "tram", "subway"]
 
 
 class Params:
+    """
+    Simulation parameters for congestion and modal share analysis
+    """
     num_citizens = 2000000
     vehicle_factor = 0.0012
     vcs_car_usage_start = 0.5
     mix_factor = 0.1
+    max_iterations = 100
+
 
 def get_modal_share(route_options, mask=None, delay_set=None):
+    """
+    Get the modal share for a set of route options
+    :param route_options: the route options
+    :param mask: (optional) a mask to apply to the route options
+    :param delay_set: (optional) a set of route-option-ids to delay (dictionary with route option id as key and delay in seconds as value)
+    :return: a dictionary with the modal share
+    """
     total_car_meters = 0
     total_transit_meters = 0
 
@@ -140,6 +152,11 @@ def get_modal_share(route_options, mask=None, delay_set=None):
 
 
 def get_transit_modal_share(stats):
+    """
+    Get the transit modal share from the stats
+    :param stats: the stats from get_modal_share
+    :return: the transit modal share
+    """
     total_car_meters = stats["total_car_meters"]
     total_transit_meters = stats["total_transit_meters"]
 
@@ -155,6 +172,12 @@ def get_transit_modal_share(stats):
 
 
 def run_decisions(db, sim_id):
+    """
+    Run decision algorithm without congestion simulation
+    :param db: the database
+    :param sim_id: the simulation id
+    :return:
+    """
     route_options = db["route-options"]
 
     results = route_options.find({"sim-id": sim_id})
@@ -169,6 +192,13 @@ def run_decisions(db, sim_id):
 
 
 def find_matching_route_options(db, sim_id, journeys):
+    """
+    Find the corresponding route options for the given journeys
+    :param db: the database
+    :param sim_id: the simulation id
+    :param journeys: the journeys
+    :return: the route options (same order as journeys)
+    """
     route_options = db["route-options"]
 
     route_options = list(route_options.find({"sim-id": sim_id}))
@@ -179,6 +209,13 @@ def find_matching_route_options(db, sim_id, journeys):
 
 
 def run_congestion_decision(db, sim_id, params: Params):
+    """
+    Run the decision algorithm with congestion simulation
+    :param db: the database
+    :param sim_id: the simulation id
+    :param params: the simulation parameters
+    :return: the modal share
+    """
     # count route-results
     num_results = db["route-results"].count_documents({"sim-id": sim_id})
 
@@ -193,8 +230,6 @@ def run_congestion_decision(db, sim_id, params: Params):
 
     mask = [random.random() < params.vcs_car_usage_start for _ in range(len(journeys))]
     last_modal_share = None
-
-    print(mask)
 
     i = -1
 
@@ -215,7 +250,7 @@ def run_congestion_decision(db, sim_id, params: Params):
             continue
 
         diff = abs(modal_share - last_modal_share)
-        if diff < 0.001:
+        if diff < 0.001 or i > 100:
             break
 
         last_modal_share = modal_share
@@ -229,18 +264,40 @@ def run_congestion_decision(db, sim_id, params: Params):
 
 
 def plot_vehicle_factors(sim_id):
+    """
+    Plot the vehicle factors vs the transit modal share
+    :param sim_id: the simulation id
+    :return:
+    """
     plot_factors(sim_id, "vehicle_factor", 0.0001 * np.arange(1, 100, 10))
 
 
 def plot_mix_factors(sim_id):
+    """
+    Plot the mix factors vs the transit modal share
+    :param sim_id: the simulation id
+    :return:
+    """
     plot_factors(sim_id, "mix_factor", np.arange(0.1, 1, 0.1))
 
 
 def plot_vcs_car_usage_start(sim_id):
+    """
+    Plot the vcs car usage start factors vs the transit modal share
+    :param sim_id: the simulation id
+    :return:
+    """
     plot_factors(sim_id, "vcs_car_usage_start", np.arange(0.1, 1, 0.1))
 
 
 def plot_factors(sim_id, factor_key, factors):
+    """
+    Plot the given factors vs the transit modal share
+    :param sim_id: the simulation id
+    :param factor_key: the factor key (field name in Params)
+    :param factors: the factors to plot
+    :return:
+    """
     db = get_database()
     params = Params()
 

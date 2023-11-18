@@ -6,6 +6,12 @@ from mongo.mongo import get_database
 
 
 def find_results_with_osm_nodes(db, sim_id):
+    """
+    Find all results that have OSM nodes in their legs
+    :param db: the database
+    :param sim_id: the simulation id
+    :return: a cursor to the results
+    """
     route_results = db["route-results"]
 
     results = route_results.find({
@@ -31,6 +37,12 @@ def find_results_with_osm_nodes(db, sim_id):
 
 
 def find_all_journeys(db, sim_id):
+    """
+    Find all route results for a simulation
+    :param db: the database
+    :param sim_id: the simulation id
+    :return: a cursor to the results
+    """
     route_results = db["route-results"]
 
     results = route_results.find({
@@ -41,6 +53,16 @@ def find_all_journeys(db, sim_id):
 
 
 def get_car_routes(journeys, mask=None):
+    """
+    Get all car routes from a set of journeys. Car routes are lists of OSM nodes.
+    :param journeys: the journeys
+    :param mask: (optional) a mask to filter out journeys
+    :return: a list of objects with the following fields:
+        - vc-id: the vehicle class id
+        - option-id: the route option id
+        - routes: a list of car routes
+        - weight: the weight of the route option
+    """
     vc_routes = []
 
     has_mask = mask is not None
@@ -84,6 +106,13 @@ def get_car_routes(journeys, mask=None):
 
 
 def get_usage_set(journeys, mask=None, vehicles_per_journey=1.0):
+    """
+    Get the usage set of a set of journeys. The usage set is a dictionary of edges and their usage.
+    :param journeys: a list of journeys
+    :param mask: (optional) a mask to filter out journeys
+    :param vehicles_per_journey: the number of vehicles per journey
+    :return: a dictionary of edges and their usage. keys are tuples of OSM nodes, values are floats.
+    """
     car_routes = get_car_routes(journeys, mask)
 
     total_weight = sum([vc["weight"] for vc in car_routes])
@@ -112,6 +141,13 @@ def get_usage_set(journeys, mask=None, vehicles_per_journey=1.0):
 
 
 def get_edges(db, sim_id, journeys):
+    """
+    Get the edges for the given simulation id.
+    :param db: the database
+    :param sim_id: the simulation id
+    :param journeys: the journeys to consider
+    :return: a dictionary of edges and their metadata. keys are tuples of OSM nodes, values are dictionaries.
+    """
     usage_set = get_usage_set(journeys, mask=None, vehicles_per_journey=0)
 
     sim = db["simulations"].find_one({"sim-id": sim_id})
@@ -152,7 +188,8 @@ def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
     :param edges: metadata about the edges
     :param mask: the mask to apply to the journeys. If None, all journeys are considered
     :param vehicles_per_journey: how many vehicles each journey represents
-    :return:
+    :return: a dictionary of edges and their congestion. keys are tuples of OSM nodes, values are floats.
+    The values are between 0 and 1 and represent the speed factor to apply to the edge.
     """
     usage_set = get_usage_set(journeys, mask, vehicles_per_journey)
 
@@ -197,6 +234,13 @@ def get_congestion_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
 
 
 def get_leg_delay(leg, edges, congestion_set):
+    """
+    Get the delay for a leg.
+    :param leg: the leg
+    :param edges: the set of edges
+    :param congestion_set: the congestion set (from get_congestion_set)
+    :return: the delay in seconds
+    """
     osm_nodes = leg["osm_nodes"]
 
     edge_keys = [
@@ -268,7 +312,14 @@ def get_delay_set(journeys, edges, mask=None, vehicles_per_journey=1.0):
     return congestion_delays
 
 
-def run_congestion_simulation(sim_id, total_citizens=1000.0):
+def plot_delays_for_factors(sim_id, vehicle_factors, total_citizens=1000.0):
+    """
+    Plot the delay for different vehicle factors.
+    :param sim_id: the simulation id
+    :param vehicle_factors: the vehicle factors to consider
+    :param total_citizens: the total number of citizens in the simulation
+    :return:
+    """
     db = get_database()
 
     # count route-results
@@ -277,7 +328,6 @@ def run_congestion_simulation(sim_id, total_citizens=1000.0):
     vehicles_per_journey = total_citizens / num_results
     print(f"Vehicles per journey: {vehicles_per_journey}")
 
-    vehicle_factors = [0.0001, 0.001, 0.01]
     vehicle_factors = [vehicles_per_journey * factor for factor in vehicle_factors]
 
     journeys = list(find_results_with_osm_nodes(db, sim_id))
@@ -300,4 +350,4 @@ def run_congestion_simulation(sim_id, total_citizens=1000.0):
 
 if __name__ == "__main__":
     num_citizens = 2000000
-    run_congestion_simulation("735a3098-8a19-4252-9ca8-9372891e90b3", total_citizens=num_citizens)
+    plot_delays_for_factors("735a3098-8a19-4252-9ca8-9372891e90b3", [0.0001, 0.001, 0.01], total_citizens=num_citizens)

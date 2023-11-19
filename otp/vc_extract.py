@@ -59,6 +59,28 @@ def has_motor_vehicle(vc):
     return False
 
 
+def has_motorcycle(vc):
+    """
+    Check if the virtual commuter has a motorcycle (Used for congestion buff)
+    :param vc: the virtual commuter
+    :return: True if the virtual commuter has a motorcycle, False otherwise
+    """
+    if "vehicles" not in vc:
+        return False
+
+    vehicles = vc["vehicles"]
+
+    if "moto" not in vehicles:
+        return False
+
+    moto_value = vehicles["moto"]
+
+    if moto_value is None or int(moto_value) == 0:
+        return False
+
+    return True
+
+
 def extract_traveller(vc):
     """
     Extracts traveller information from a virtual commuter, like employment or vehicles.

@@ -274,7 +274,7 @@ def __find_results_with_osm_nodes(db, sim_id):
     return results
 
 
-def __dump_used_edge_metadata(db, sim_id, graph, graph_undirected):
+def __get_edge_set(db, sim_id):
     results = __find_results_with_osm_nodes(db, sim_id)
 
     edge_set = set()
@@ -307,6 +307,23 @@ def __dump_used_edge_metadata(db, sim_id, graph, graph_undirected):
             if found_car_route:
                 break
 
+    return edge_set
+
+
+def __dump_metadata(coll, to_dump):
+    try:
+        coll.insert_one(to_dump)
+    except pymongo.errors.DuplicateKeyError:
+        pass
+    except bson.errors.InvalidDocument as e:
+        print("Invalid document: " + str(to_dump))
+        print(e)
+
+        for key in to_dump.keys():
+            print(f"{key}: {to_dump[key]}, type: {type(to_dump[key])}")
+
+
+def __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected):
     edge_count = len(edge_set)
     print("Dumping {} edges".format(edge_count))
 
@@ -344,25 +361,55 @@ def __dump_used_edge_metadata(db, sim_id, graph, graph_undirected):
             "edge": edge
         }
 
-        try:
-            edge_data_coll.insert_one(edge_data)
-        except pymongo.errors.DuplicateKeyError:
-            pass
-        except bson.errors.InvalidDocument as e:
-            print("Invalid document: " + str(edge_data))
-            print(e)
-
-            for key in edge.keys():
-                print(f"{key}: {edge[key]}, type: {type(edge[key])}")
+        __dump_metadata(edge_data_coll, edge_data)
 
 
-def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recalc_edge_data=False):
+def __dump_used_node_metadata(db, sim_id, edge_set, graph, graph_undirected):
+    node_set = set()
+
+    for edge in edge_set:
+        node_set.add(edge[0])
+        node_set.add(edge[1])
+
+    node_count = len(node_set)
+    print("Dumping {} nodes".format(node_count))
+
+    sim = db["simulations"].find_one({"sim-id": sim_id})
+
+    pivot_date = sim["pivot-date"]
+    pivot_date_str = pivot_date.isoformat()
+
+    node_data_coll = db["street-node-data"]
+
+    progress = 0
+    last_print = 0
+
+    for node in node_set:
+        progress += 1
+
+        if time.time() - last_print > 1:
+            print("Progress: {:.2f}%".format(progress / node_count * 100))
+            last_print = time.time()
+
+        node_id = str(node) + "-" + pivot_date_str
+        node_data = {
+            "node-id": node_id,
+            "node": graph.nodes[node].copy()
+        }
+
+        __dump_metadata(node_data_coll, node_data)
+
+
+def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recalc_edge_data=False,
+                 recalc_node_data=False):
     """
     Run the matching algorithm for the given simulation id.
     :param sim_id: the simulation id
     :param place_name: the place name
     :param num_threads: the number of threads to use
     :param reset_jobs: if True, reset all jobs of the simulation
+    :param recalc_edge_data: if True, force recalculate the edge metadata in case there are no active jobs
+    :param recalc_node_data: if True, force recalculate the node metadata in case there are no active jobs
     :return:
     """
     db = get_database()
@@ -372,13 +419,18 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recal
         __reset_jobs(db, sim_id)
 
     if __no_active_jobs(db, sim_id):
-        if recalc_edge_data:
+        if recalc_edge_data or recalc_node_data:
             print("No active jobs, skipping matching algorithm. Recalculating edge metadata...")
             graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=False)
             graph_undirected = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
-            print("Dumping used edge metadata")
+            print("Dumping used edge/node metadata")
             t = time.time()
-            __dump_used_edge_metadata(db, sim_id, graph, graph_undirected)
+            edge_set = __get_edge_set(db, sim_id)
+
+            if recalc_node_data:
+                __dump_used_node_metadata(db, sim_id, edge_set, graph, graph_undirected)
+            if recalc_edge_data:
+                __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected)
             print("Dumping finished in {:.2f} seconds".format(time.time() - t))
             return
 
@@ -397,7 +449,8 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recal
 
     print("Dumping used edge metadata")
     t = time.time()
-    __dump_used_edge_metadata(db, sim_id, graph, graph_undirected)
+    edge_set = __get_edge_set(db, sim_id)
+    __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected)
     print("Dumping finished in {:.2f} seconds".format(time.time() - t))
 
 
@@ -409,7 +462,9 @@ if __name__ == "__main__":
     parser.add_argument('--num-threads', type=int, default=4, help='the number of threads to use')
     parser.add_argument('--reset-jobs', action='store_true', help='reset all jobs of the simulation')
     parser.add_argument('--recalc-edge-data', action='store_true', help='recalculate edge metadata for finished jobs')
+    parser.add_argument('--recalc-node-data', action='store_true', help='recalculate node metadata for finished jobs')
 
     args = parser.parse_args()
 
-    run_matching(args.sim_id, args.place_name, args.num_threads, args.reset_jobs, args.recalc_edge_data)
+    run_matching(args.sim_id, args.place_name, args.num_threads, args.reset_jobs, args.recalc_edge_data,
+                 args.recalc_node_data)

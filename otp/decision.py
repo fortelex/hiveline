@@ -1,12 +1,15 @@
 import math
 import random
 
+import folium
 import numpy as np
 from matplotlib import pyplot as plt
 
 from mongo.mongo import get_database
 import vc_extract
 import congestion
+
+import branca.colormap as cm
 
 transit_modes = ["bus", "rail", "tram", "subway"]
 
@@ -16,10 +19,12 @@ class Params:
     Simulation parameters for congestion and modal share analysis
     """
     num_citizens = 2000000
-    vehicle_factor = 0.0012
+    vehicle_factor = 0.00007
     vcs_car_usage_start = 0.5
     mix_factor = 0.1
     max_iterations = 100
+
+    congestion_options = congestion.CongestionOptions()
 
 
 def get_modal_share(route_options, mask=None, delay_set=None):
@@ -191,30 +196,19 @@ def run_decisions(db, sim_id):
     print(f"Transit modal share: {transit_modal_share * 100}%")
 
 
-def find_matching_route_options(db, sim_id, journeys):
-    """
-    Find the corresponding route options for the given journeys
-    :param db: the database
-    :param sim_id: the simulation id
-    :param journeys: the journeys
-    :return: the route options (same order as journeys)
-    """
-    route_options = db["route-options"]
-
-    route_options = list(route_options.find({"sim-id": sim_id}))
-
-    route_options = {option["vc-id"]: option for option in route_options}
-
-    return [route_options[journey["vc-id"]] for journey in journeys]
-
-
-def run_congestion_decision(db, sim_id, params: Params):
+def run_congestion_simulation(db, sim_id, params: Params):
     """
     Run the decision algorithm with congestion simulation
     :param db: the database
     :param sim_id: the simulation id
     :param params: the simulation parameters
-    :return: the modal share
+    :return: a dict with the results and sturctures used
+    - modal_share: the modal share if the last iteration
+    - congestion_set: the congestion set of the last iteration
+    - iterations: the number of iterations
+    - journeys: the journeys analyzed
+    - edges: the edges used by the journeys
+    - mask: the mask of journeys that use a car in the last iteration
     """
     # count route-results
     num_results = db["route-results"].count_documents({"sim-id": sim_id})
@@ -223,20 +217,23 @@ def run_congestion_decision(db, sim_id, params: Params):
     print(f"Vehicles per journey: {vehicles_per_journey}")
 
     journeys = list(congestion.find_all_journeys(db, sim_id))
-    route_options = find_matching_route_options(db, sim_id, journeys)
+    route_options = congestion.find_matching_route_options(db, sim_id, journeys)
     edges = congestion.get_edges(db, sim_id, journeys)
 
     # start off with half of the vcs on the road
 
     mask = [random.random() < params.vcs_car_usage_start for _ in range(len(journeys))]
     last_modal_share = None
+    last_congestion_set = None
 
     i = -1
 
     while True:
         i += 1
 
-        delay_set = congestion.get_delay_set(journeys, edges, mask, vehicles_per_journey)
+        congestion_set = congestion.get_congestion_set(journeys, edges, mask, vehicles_per_journey)
+        delay_set = congestion.get_delay_set_from_congestion(congestion_set, journeys, route_options, edges,
+                                                             params.congestion_options)
 
         stats = get_modal_share(route_options, mask, delay_set)
         next_mask = stats["mask"]
@@ -250,17 +247,41 @@ def run_congestion_decision(db, sim_id, params: Params):
             continue
 
         diff = abs(modal_share - last_modal_share)
-        if diff < 0.001 or i > 100:
-            break
 
         last_modal_share = modal_share
+        last_congestion_set = congestion_set
+
+        if diff < 0.001 or i > 100:
+            break
 
         # update mask
         for j in range(len(mask)):
             if random.random() < params.mix_factor:
                 mask[j] = next_mask[j]
 
-    return last_modal_share
+    return {
+        "modal_share": modal_share,
+        "congestion_set": last_congestion_set,
+        "iterations": i,
+        "journeys": journeys,
+        "edges": edges,
+        "mask": mask
+    }
+
+
+def get_congestion_sim_modal_share(db, sim_id, params: Params):
+    """
+    Run the decision algorithm with congestion simulation
+    :param db: the database
+    :param sim_id: the simulation id
+    :param params: the simulation parameters
+    :return: the modal share
+    """
+
+    data = run_congestion_simulation(db, sim_id, params)
+    modal_share = data["modal_share"]
+
+    return modal_share
 
 
 def plot_vehicle_factors(sim_id):
@@ -269,7 +290,7 @@ def plot_vehicle_factors(sim_id):
     :param sim_id: the simulation id
     :return:
     """
-    plot_factors(sim_id, "vehicle_factor", 0.0001 * np.arange(1, 100, 10))
+    plot_factors(sim_id, "vehicle_factor", 0.000002 * np.arange(1, 100, 10))
 
 
 def plot_mix_factors(sim_id):
@@ -306,7 +327,7 @@ def plot_factors(sim_id, factor_key, factors):
     for factor in factors:
         setattr(params, factor_key, factor)
 
-        modal_share = run_congestion_decision(db, sim_id, params)
+        modal_share = get_congestion_sim_modal_share(db, sim_id, params)
 
         modal_shares.append(modal_share)
 
@@ -317,4 +338,46 @@ def plot_factors(sim_id, factor_key, factors):
     plt.show()
 
 
-plot_vcs_car_usage_start("735a3098-8a19-4252-9ca8-9372891e90b3")
+def plot_congestion_for_set(congestion_set, nodes):
+    some_node = next(iter(nodes.values()))["node"]
+
+    f_map = folium.Map(location=[some_node["y"], some_node["x"]], zoom_start=11, tiles='CartoDB dark_matter')
+
+    # Define a color scale
+    linear = cm.LinearColormap(colors=['#00ccff', '#BBD460'], index=[0, 1], vmin=0, vmax=1)
+
+    for (origin, destination), speed_factor in congestion_set.items():
+        origin_node = nodes[origin]["node"]
+        destination_node = nodes[destination]["node"]
+
+        origin_point = (origin_node["y"], origin_node["x"])
+        destination_point = (destination_node["y"], destination_node["x"])
+
+        folium.PolyLine([origin_point, destination_point], color=linear(1 - speed_factor),
+                        opacity=1 - speed_factor).add_to(f_map)
+
+    linear.add_to(f_map)
+
+    return f_map
+
+
+def plot_congestion_for_sim(sim_id):
+    db = get_database()
+    params = Params()
+
+    params.vehicle_factor = 0.001  # high vehicle factor to see congestion
+
+    data = run_congestion_simulation(db, sim_id, params)
+    congestion_set = data["congestion_set"]
+    edges = data["edges"]
+
+    nodes = congestion.get_nodes(db, sim_id, edges)
+
+    f_map = plot_congestion_for_set(congestion_set, nodes)
+
+    f_map.save("congestion.html")
+
+
+if __name__ == "__main__":
+    # plot_vehicle_factors("735a3098-8a19-4252-9ca8-9372891e90b3")
+    plot_congestion_for_sim("735a3098-8a19-4252-9ca8-9372891e90b3")

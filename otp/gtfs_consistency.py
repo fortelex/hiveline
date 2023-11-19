@@ -48,7 +48,7 @@ def fix_transfer_stops(gtfs_path):
     """
     Remove transfers that reference stops that don't exist
     :param gtfs_path: The path to the GTFS folder
-    :return:
+    :return: True if the GTFS was changed, False if it was not
     """
     stops_file = gtfs_path + "/stops.txt"
     transfers_file = gtfs_path + "/transfers.txt"
@@ -71,6 +71,29 @@ def fix_transfer_stops(gtfs_path):
     return True
 
 
+def fix_authorities(gtfs_path):
+    """
+    If the column "agency_url" is missing from the agencies.txt file, add it
+    :param gtfs_path: The path to the GTFS folder
+    :return: True if the GTFS was changed, False if it was not
+    """
+    agencies_file = gtfs_path + "/agency.txt"
+
+    if not os.path.exists(agencies_file):
+        return False
+
+    agencies_df = pd.read_csv(agencies_file)
+
+    if "agency_url" in agencies_df.columns:
+        return False
+
+    agencies_df["agency_url"] = ""
+
+    agencies_df.to_csv(agencies_file, index=False)
+
+    return True
+
+
 def fix_gtfs(gtfs_path):
     """
     Fix a GTFS zip file. This will unzip the file, fix it, and re-zip it. It will remove any invalid data. For example
@@ -83,6 +106,7 @@ def fix_gtfs(gtfs_path):
     unzip_gtfs(gtfs_path, temp_dir)
 
     has_changed = fix_transfer_stops(temp_dir)
+    has_changed = fix_authorities(temp_dir) or has_changed
 
     if not has_changed:
         shutil.rmtree(temp_dir)

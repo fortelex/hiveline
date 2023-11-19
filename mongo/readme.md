@@ -8,6 +8,7 @@ UP_MONGO_USER=<username>
 UP_MONGO_PASSWORD=<password>
 UP_MONGO_DOMAIN=<domain>
 UP_MONGO_DATABASE=<database>
+PROJECT_PATH=<path to the project folder>
 ```
 
 Install python requirements:

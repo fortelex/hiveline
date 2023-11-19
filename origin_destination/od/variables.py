@@ -22,7 +22,7 @@ parking_prob ={
             'max_prob_bldg_dsty':0.05,
             'max_prob':1.0
         },
-        'motorcycle':{
+        'moto':{
             'min_prob_bldg_dsty':0.5,
             'min_prob':0.2,
             'max_prob_bldg_dsty':0.05,
@@ -36,7 +36,7 @@ parking_prob ={
             'max_prob_bldg_dsty':0.05,
             'max_prob':1.0
         },
-        'motorcycle':{
+        'moto':{
             'min_prob_bldg_dsty':0.5,
             'min_prob':0.4,
             'max_prob_bldg_dsty':0.05,
@@ -44,3 +44,5 @@ parking_prob ={
         }
     }
 }
+
+min_distance_to_take_car = 3000 # m

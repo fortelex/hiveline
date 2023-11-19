@@ -20,7 +20,7 @@ place_name = "Paris, France"
 place_id = get_place_id(db, place_name)
 pivot_date = datetime(2021, 6, 6, 8, 0, 0, 0, tzinfo=timezone.utc)
 sim_id = str(uuid.uuid4())
-num_virtual_commuters = 1000
+num_virtual_commuters = 2000
 
 # Export simulation to mongo db
 db["simulations"].insert_one({

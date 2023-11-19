@@ -3,7 +3,7 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 import osmnx as ox
-import shapely
+import shapely.geometry
 import matplotlib.pyplot as plt
 from .tags import *
 from .variables import data_folder, point_area, default_work_coefficient, parking_prob
@@ -129,7 +129,17 @@ class Place():
                 # call loading function if the search result is empty or incomplete
                 if result_df.empty or len(result_df) < len(match_ids):
                     print('Data not in db, computing')
-                    data_df = loading_function(self)
+                    # split in chunks that can be computed in one go
+                    chunk_size=300
+                    tiles_backup = self.tiles.copy()
+                    data_df = pd.DataFrame()
+                    for i in range(0, len(self.tiles), chunk_size):
+                        print('chunk', int(i/chunk_size))
+                        self.tiles = tiles_backup[i:i+chunk_size]
+                        chunk_df = loading_function(self)
+                        data_df = pd.concat([data_df, chunk_df])
+                        del chunk_df
+                    self.tiles = tiles_backup.copy()
                 else:
                     print('Data found in db')
                     data_df = extra_transformation(result_df)
@@ -174,19 +184,19 @@ class Place():
         ax.set_axis_off()
         self.data.plot(ax=ax, zorder=1, column='population')
 
-    def get_zoning(self):
+    def get_zoning(self, multipolygon):
         '''
         Get zoning data from Open Street Map
         '''
         self.zones = {
-            'work_agricultural': ox.features_from_place(self.name, work_agricultural_tags),
-            'work_industrial': ox.features_from_place(self.name, work_industrial_tags),
-            'work_commercial': ox.features_from_place(self.name, work_commercial_tags),
-            'work_office': ox.features_from_place(self.name, work_office_tags),
-            'work_social': ox.features_from_place(self.name, work_social_tags),
-            'education': ox.features_from_place(self.name, education_tags),
-            'leisure': ox.features_from_place(self.name, leisure_tags),
-            'empty': ox.features_from_place(self.name, empty_tags),
+            'work_agricultural': ox.features_from_polygon(multipolygon, work_agricultural_tags),
+            'work_industrial': ox.features_from_polygon(multipolygon, work_industrial_tags),
+            'work_commercial': ox.features_from_polygon(multipolygon, work_commercial_tags),
+            'work_office': ox.features_from_polygon(multipolygon, work_office_tags),
+            'work_social': ox.features_from_polygon(multipolygon, work_social_tags),
+            'education': ox.features_from_polygon(multipolygon, education_tags),
+            'leisure': ox.features_from_polygon(multipolygon, leisure_tags),
+            'empty': ox.features_from_polygon(multipolygon, empty_tags),
         }
 
         # keep only points for office as the polygons are badly distributed
@@ -195,21 +205,21 @@ class Place():
         # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
         self.zones['work_industrial'] = only_geo_polygons(self.zones['work_industrial'])
 
-    def get_zoning_noparkingland(self):
+    def get_zoning_noparkingland(self, multipolygon):
         '''
         Get zoning data from Open Street Map for no parking land
         '''
-        self.zones['no_parking_land'] = ox.features_from_place(self.name, parking_tags)
+        self.zones['no_parking_land'] = ox.features_from_polygon(multipolygon, parking_tags)
         # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
         self.zones['no_parking_land'] = only_geo_polygons(self.zones['no_parking_land'])
     
-    def get_zoning_buildings(self, batch_nb):
+    def get_zoning_buildings(self, multipolygon, batch_nb):
         '''
         Get zoning data from Open Street Map for buildings
         Args:
             batch_nb (str): '1' or '2', the batch to get
         '''
-        self.zones['buildings'+batch_nb] = ox.features_from_place(self.name, building_tags[batch_nb])
+        self.zones['buildings'+batch_nb] = ox.features_from_polygon(multipolygon, building_tags[batch_nb])
         # keep only polygons for buildings and industrial landuse due to significant overlap between points and buildings
         self.zones['buildings'+batch_nb] = only_geo_polygons(self.zones['buildings'+batch_nb])
 
@@ -220,14 +230,18 @@ class Place():
         Load the zoning data into the data gdf
         Measure the areas of zones of interest (work, education, leisure,...) within each tile
         '''
-        self.get_zoning()
-        self.get_zoning_noparkingland()
-        self.get_zoning_buildings('1')
-        self.get_zoning_buildings('2')
+        # get all the tiles (in current chunk) geometries to a single multipolygon
+        multipolygon = shapely.geometry.MultiPolygon(self.tiles['geometry'].to_list())
+        # merge intersecting polygons
+        multipolygon = multipolygon.buffer(0)
+        self.get_zoning(multipolygon)
+        self.get_zoning_noparkingland(multipolygon)
+        self.get_zoning_buildings(multipolygon, '1')
+        self.get_zoning_buildings(multipolygon, '2')
         destination = self.tiles.copy()
 
         # area of a whole single hexagonal tile
-        tile_area = self.tiles.to_crs(epsg=6933)['geometry'][0].area
+        tile_area = self.tiles.to_crs(epsg=6933).head(1)['geometry'].area
 
         for i, tile in destination.iterrows():
             for interest in self.zones.keys():
@@ -260,7 +274,8 @@ class Place():
         '''
         Approximate parking probabilities based on building density and input variables 
         '''
-        destination = self.data[['h3', 'building_density']].copy()
+        tiles_filter = self.data['h3'].isin(self.tiles['h3'])
+        destination = self.data.loc[tiles_filter, ['h3', 'building_density']].copy()
         
         # get global parking variables
         prkg_locations = parking_prob.keys()
@@ -268,29 +283,22 @@ class Place():
 
         # calculate parking probabilities for each tile
         for i, tile in destination.iterrows():
-
             dsty = destination.loc[i,'building_density']
             for p in prkg_locations:
                 for v in prkg_vehicles:
-                        
-                    # print(p, v)
-                    # print(parking_prob[p][v])
                     min_prob_bldg_dsty = parking_prob[p][v]['min_prob_bldg_dsty']
                     min_prob = parking_prob[p][v]['min_prob']
                     max_prob_bldg_dsty = parking_prob[p][v]['max_prob_bldg_dsty']
                     max_prob = parking_prob[p][v]['max_prob']
-                    
                     if dsty >= min_prob_bldg_dsty:
                         prob =  min_prob
                     elif dsty <= max_prob_bldg_dsty:
                         prob = max_prob
                     else: # min_prob_bldg_dsty > dsty > max_prob_bldg_dsty
                         prob = np.round( max_prob - (max_prob - min_prob) * (dsty - max_prob_bldg_dsty)/(min_prob_bldg_dsty - max_prob_bldg_dsty), 4)
-
                     # add columns to destination dataframe
                     destination.loc[i,f'parking_{p}_{v}'] = prob
-        
-        destination = destination.drop(columns='building_density')
+        destination = destination.drop(columns='building_density') # already in the data
         return destination
 
     @mongo_cached(collection='tiles', match_field_list=['h3', '_id'], fields=['nuts-3'])

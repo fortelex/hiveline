@@ -402,7 +402,7 @@ if __name__ == "__main__":
         exit(0)
         
     if args.target_date == "":
-        print("please add the target-date argument for non-common building)
+        print("please add the target-date argument for non-common building")
 
     build_single(args.target_date, args.place_id, args.force_rebuild, args.memory_gb)
 

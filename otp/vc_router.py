@@ -109,13 +109,14 @@ def __reset_timed_out_jobs(db):
     })
 
 
-def __get_route_option(vc, sim, uses_delays, modes):
+def __get_route_option(vc, sim, uses_delays, modes, client_timeout=40):
     """
     Get a route for a virtual commuter.
     :param vc: The virtual commuter
     :param sim: The simulation
     :param uses_delays: Whether to use delay simulation or not
     :param modes: The modes to use
+    :param client_timeout: The timeout for the client
     :return:
     """
     origin = vc_extract.extract_origin_loc(vc)
@@ -127,7 +128,7 @@ def __get_route_option(vc, sim, uses_delays, modes):
 
     if uses_delays:
         itinerary = otp.get_delayed_route(origin[1], origin[0], destination[1], destination[0], departure_date,
-                                          departure_time, False, modes)
+                                          departure_time, False, modes, client_timeout)
         if itinerary is None:
             return None
 
@@ -136,7 +137,7 @@ def __get_route_option(vc, sim, uses_delays, modes):
     else:
         itineraries = otp.get_route(origin[1], origin[0], destination[1], destination[0], departure_date,
                                     departure_time,
-                                    False, modes)
+                                    False, modes, client_timeout)
 
     if itineraries is None or len(itineraries) == 0:
         return None
@@ -151,11 +152,13 @@ def __get_route_option(vc, sim, uses_delays, modes):
     }
 
 
-def __route_virtual_commuter(vc, sim, uses_delays):
+def __route_virtual_commuter(vc, sim, uses_delays, client_timeout=40):
     """
     Route a virtual commuter. It will calculate available mode combinations and then calculate routes for each of them.
-    :param vc:
-    :param uses_delays:
+    :param vc: The virtual commuter
+    :param sim: The simulation
+    :param uses_delays: Whether to use delay simulation or not
+    :param client_timeout: The timeout for the OTP client
     :return:
     """
     mode_combinations = [["WALK", "TRANSIT"]]
@@ -163,7 +166,7 @@ def __route_virtual_commuter(vc, sim, uses_delays):
     if vc_extract.has_motor_vehicle(vc):
         mode_combinations += [["WALK", "CAR"]]
 
-    options = [__get_route_option(vc, sim, uses_delays, modes) for modes in mode_combinations]
+    options = [__get_route_option(vc, sim, uses_delays, modes, client_timeout) for modes in mode_combinations]
     options = [option for option in options if option is not None]
 
     return options
@@ -277,8 +280,8 @@ def __no_active_jobs(db, sim_id):
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta):
-    options = __route_virtual_commuter(vc, sim, use_delays)
+def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta, client_timeout=40):
+    options = __route_virtual_commuter(vc, sim, use_delays, client_timeout)
 
     if options is None or len(options) == 0:
         raise Exception("No route found")
@@ -316,7 +319,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, 
         route_options_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_options})
 
 
-def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
+def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1, client_timeout=40):
     jobs_coll = db["route-calculation-jobs"]
     vc_coll = db["virtual-commuters"]
     route_results_coll = db["route-results"]
@@ -365,7 +368,7 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
             should_route = vc_extract.should_route(vc)
 
             if should_route:
-                __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta)
+                __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta, client_timeout)
 
             # set status to finished
             jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
@@ -386,11 +389,11 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
                 break
 
 
-def __spawn_job_pull_threads(db, sim, meta, num_threads=4):
+def __spawn_job_pull_threads(db, sim, meta, num_threads=4, client_timeout=40):
     threads = []
 
     for i in range(num_threads):
-        t = threading.Thread(target=__iterate_jobs, args=(db, sim, meta, i == 0, num_threads))
+        t = threading.Thread(target=__iterate_jobs, args=(db, sim, meta, i == 0, num_threads, client_timeout))
         t.start()
         threads.append(t)
 
@@ -413,7 +416,7 @@ def __wait_for_line(process, line_to_wait_for):
 
 
 def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4, num_threads=4,
-        reset_jobs=False):
+        reset_jobs=False, api_timeout=20):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
@@ -424,6 +427,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     :param server_memory: The amount of memory to use for the OTP server
     :param num_threads: The number of threads to use for sending route requests to the server
     :param reset_jobs: Whether to reset all jobs to pending or not
+    :param api_timeout: The timeout for the OTP server
     :return:
     """
     db = get_database()
@@ -445,7 +449,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     print("Building graph")
     resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild, graph_build_memory)
 
-    proc = builder.run_server(resources["graph_file"], server_memory)
+    proc = builder.run_server(resources["graph_file"], server_memory, api_timeout)
 
     meta = {
         "otp-version": resources["otp_version"],
@@ -455,6 +459,8 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
                  resources["gtfs_sources"]],
         "uses-delay-simulation": use_delays
     }
+
+    client_timeout = api_timeout * 2  # when the http client should timeout
 
     if proc is None:
         print("Server not started")
@@ -467,7 +473,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
 
         t = datetime.now()
 
-        __spawn_job_pull_threads(db, sim, meta, num_threads)
+        __spawn_job_pull_threads(db, sim, meta, num_threads, client_timeout)
 
         print("Finished routing algorithm in " + str(datetime.now() - t))
 
@@ -498,9 +504,10 @@ if __name__ == "__main__":
                                                                                        'for sending route requests to the server')
     parser.add_argument('--reset-jobs', dest='reset_jobs', action='store_true', help='Whether to reset all jobs for '
                                                                                      'this simulation')
+    parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=20, help='The timeout for the OTP server (in seconds)')
 
     args = parser.parse_args()
 
     run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory,
         args.num_threads,
-        args.reset_jobs)
+        args.reset_jobs, args.api_timeout)

@@ -6,7 +6,7 @@ import requests
 from mongo import mongo
 
 
-def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, modes=None):
+def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, modes=None, client_timeout=40):
     """
     This function queries the OTP GraphQL endpoint and returns the itineraries
 
@@ -18,6 +18,7 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
     :param time: time of the trip
     :param is_arrival: whether the time is the arrival time or the departure time
     :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
+    :param client_timeout: timeout for the request
 
     :return: list of itineraries
     """
@@ -96,7 +97,7 @@ def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, 
     }
 
     # Send the request to the OTP GraphQL endpoint
-    response = requests.post(url, json={'query': query}, headers=headers, timeout=40)
+    response = requests.post(url, json={'query': query}, headers=headers, timeout=client_timeout)
 
     # Check if the request was successful
     if response.status_code == 200:
@@ -207,7 +208,7 @@ time_dependent_modes = ["BUS", "CABLE_CAR", "COACH", "FERRY", "FUNICULAR", "GOND
                         "TRAM", "TROLLEYBUS", "TRANSIT"]
 
 
-def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival, modes):
+def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival, modes, client_timeout=40):
     """
     This function returns a delayed itinerary for the specified parameters. It uses the fastest itinerary from OTP and
     adds a random delay to each leg of the itinerary. If a leg is cancelled or the traveller cannot catch the next
@@ -221,11 +222,12 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival
     :param time: time of the trip in the format HH:MM:SS
     :param is_arrival: whether the time is the arrival time or the departure time
     :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
+    :param client_timeout: timeout for the OTP request
     :return: a delayed itinerary
     """
     __ensure_delay_statistics()
 
-    itineraries = get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival, modes)
+    itineraries = get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival, modes, client_timeout)
 
     if itineraries is None or len(itineraries) == 0:
         return None
@@ -317,7 +319,7 @@ def get_delayed_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival
         new_date = new_dep.strftime("%Y-%m-%d")
         new_time = new_dep.strftime("%H:%M")
 
-        itineraries = get_route(pos_lat, pos_lon, to_lat, to_lon, new_date, new_time, is_arrival, modes)
+        itineraries = get_route(pos_lat, pos_lon, to_lat, to_lon, new_date, new_time, is_arrival, modes, client_timeout)
         re_calc_count += 1
 
         if itineraries is None or len(itineraries) == 0:

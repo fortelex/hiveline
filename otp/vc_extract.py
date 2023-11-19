@@ -32,10 +32,12 @@ def extract_departure(vc, sim):
 
 def has_motor_vehicle(vc):
     """
-    Check if the virtual commuter has a motor vehicle
+    Check if the route finder should add car routes
     :param vc: the virtual commuter
     :return: True if the virtual commuter has a motor vehicle, False otherwise
     """
+
+    _ = """
     if "vehicles" not in vc:
         return False
 
@@ -57,6 +59,9 @@ def has_motor_vehicle(vc):
             return True
 
     return False
+    """
+
+    return True
 
 
 def has_motorcycle(vc):

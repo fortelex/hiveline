@@ -90,13 +90,12 @@ def __no_active_jobs(db, sim_id):
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __process_route_result(route_results_coll, route_result, graph, graph_undirected):
+def __process_route_result(route_results_coll, route_result, graph):
     """
     Run matching algorithm for a single route result.
     :param route_results_coll: The collection to update the route result in
     :param route_result: The route result to process
-    :param graph: The graph to use for the matching
-    :param graph_undirected: The undirected version of graph
+    :param graph: The undirected graph to use for the matching
     :return:
     """
     has_changed = False
@@ -129,7 +128,7 @@ def __process_route_result(route_results_coll, route_result, graph, graph_undire
                 origins = node_ids[:-1]
                 destinations = node_ids[1:]
 
-                routes = ox.shortest_path(graph_undirected, origins, destinations, weight='length')
+                routes = ox.shortest_path(graph, origins, destinations, weight='length')
 
                 first = routes[0][0]
                 route = [first] + [item for sublist in routes for item in sublist[1:]]
@@ -144,13 +143,12 @@ def __process_route_result(route_results_coll, route_result, graph, graph_undire
     route_results_coll.replace_one({"_id": route_result["_id"]}, route_result)
 
 
-def __iterate_jobs(db, sim_id, graph, graph_undirected, debug=False, progress_fac=1):
+def __iterate_jobs(db, sim_id, graph, debug=False, progress_fac=1):
     """
     Iterate over all matching jobs and run the matching algorithm for each job.
     :param db: the database
     :param sim_id: the simulation id
-    :param graph: the graph to use for the matching
-    :param graph_undirected: the undirected version of graph
+    :param graph: the undirected graph to use for the matching
     :param debug: if True, print debug information
     :param progress_fac: the progress factor to use (useful for debugging parallel processing)
     :return:
@@ -198,7 +196,7 @@ def __iterate_jobs(db, sim_id, graph, graph_undirected, debug=False, progress_fa
 
         try:
             route_result = route_results_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
-            __process_route_result(route_results_coll, route_result, graph, graph_undirected)
+            __process_route_result(route_results_coll, route_result, graph)
 
             # set status to finished
             jobs_coll.update_one({"_id": job["_id"]}, {
@@ -209,9 +207,6 @@ def __iterate_jobs(db, sim_id, graph, graph_undirected, debug=False, progress_fa
             })
 
         except Exception as e:
-            if True:
-                raise e
-
             short_description = "Exception occurred while running matching algorithm: " + e.__class__.__name__ + ": " \
                                 + str(e)
 
@@ -228,20 +223,19 @@ def __iterate_jobs(db, sim_id, graph, graph_undirected, debug=False, progress_fa
                 break
 
 
-def __spawn_job_pull_threads(db, sim_id, graph, graph_undirected, num_threads=4):
+def __spawn_job_pull_threads(db, sim_id, graph, num_threads=4):
     """
     Spawn threads to pull jobs from the database and run the matching algorithm for each job.
     :param db: the database
     :param sim_id: the simulation id
-    :param graph: the graph to use for the matching
-    :param graph_undirected: the undirected version of graph
+    :param graph: the undirected graph to use for the matching
     :param num_threads: the number of threads to spawn
     :return:
     """
     threads = []
 
     for i in range(num_threads):
-        t = threading.Thread(target=__iterate_jobs, args=(db, sim_id, graph, graph_undirected, i == 0, num_threads))
+        t = threading.Thread(target=__iterate_jobs, args=(db, sim_id, graph, i == 0, num_threads))
         t.start()
         threads.append(t)
 
@@ -311,6 +305,12 @@ def __get_edge_set(db, sim_id):
 
 
 def __dump_metadata(coll, to_dump):
+    """
+    Dumps metadata to the database. If the metadata already exists, it will not be dumped again.
+    :param coll: the collection to dump to
+    :param to_dump: the metadata to dump
+    :return:
+    """
     try:
         coll.insert_one(to_dump)
     except pymongo.errors.DuplicateKeyError:
@@ -323,7 +323,15 @@ def __dump_metadata(coll, to_dump):
             print(f"{key}: {to_dump[key]}, type: {type(to_dump[key])}")
 
 
-def __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected):
+def __dump_used_edge_metadata(db, sim_id, edge_set, graph):
+    """
+    Dumps metadata for the edges that are used in the simulation.
+    :param db: The database
+    :param sim_id: The simulation id
+    :param edge_set: The set of edges that are used in the simulation
+    :param graph: An undirected graph
+    :return:
+    """
     edge_count = len(edge_set)
     print("Dumping {} edges".format(edge_count))
 
@@ -351,7 +359,7 @@ def __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected):
             origin, destination = destination, origin
 
         edge_id = str(origin) + "-" + str(destination) + "-" + pivot_date_str
-        edge = graph_undirected.edges[origin, destination, 0].copy()
+        edge = graph.edges[origin, destination, 0].copy()
 
         if "geometry" in edge:
             del edge["geometry"]
@@ -364,7 +372,15 @@ def __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected):
         __dump_metadata(edge_data_coll, edge_data)
 
 
-def __dump_used_node_metadata(db, sim_id, edge_set, graph, graph_undirected):
+def __dump_used_node_metadata(db, sim_id, edge_set, graph):
+    """
+    Dumps metadata for the nodes that are used in the simulation.
+    :param db: The database
+    :param sim_id: The simulation id
+    :param edge_set: The set of edges that are used in the simulation
+    :param graph: An undirected graph
+    :return:
+    """
     node_set = set()
 
     for edge in edge_set:
@@ -421,16 +437,15 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recal
     if __no_active_jobs(db, sim_id):
         if recalc_edge_data or recalc_node_data:
             print("No active jobs, skipping matching algorithm. Recalculating edge metadata...")
-            graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=False)
-            graph_undirected = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
+            graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
             print("Dumping used edge/node metadata")
             t = time.time()
             edge_set = __get_edge_set(db, sim_id)
 
             if recalc_node_data:
-                __dump_used_node_metadata(db, sim_id, edge_set, graph, graph_undirected)
+                __dump_used_node_metadata(db, sim_id, edge_set, graph)
             if recalc_edge_data:
-                __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected)
+                __dump_used_edge_metadata(db, sim_id, edge_set, graph)
             print("Dumping finished in {:.2f} seconds".format(time.time() - t))
             return
 
@@ -438,19 +453,18 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recal
             "No active jobs, exiting. Use --reset-jobs to reset all jobs. Use --recalc-edge-data to recalculate edge metadata for finished jobs.")
         return
 
-    graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=False)
-    graph_undirected = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
+    graph = historical_osmnx.get_graph(db, sim_id, place_name, undirected=True)
 
     print("Graph loaded.")
 
     t = time.time()
-    __spawn_job_pull_threads(db, sim_id, graph, graph_undirected, num_threads=num_threads)
+    __spawn_job_pull_threads(db, sim_id, graph, num_threads=num_threads)
     print("Matching algorithm finished in {:.2f} seconds".format(time.time() - t))
 
     print("Dumping used edge metadata")
     t = time.time()
     edge_set = __get_edge_set(db, sim_id)
-    __dump_used_edge_metadata(db, sim_id, edge_set, graph, graph_undirected)
+    __dump_used_edge_metadata(db, sim_id, edge_set, graph)
     print("Dumping finished in {:.2f} seconds".format(time.time() - t))
 
 

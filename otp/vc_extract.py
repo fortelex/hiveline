@@ -1,3 +1,6 @@
+from datetime import datetime
+
+
 def extract_origin_loc(vc):
     """
     Extract the origin location from a virtual commuter
@@ -32,10 +35,12 @@ def extract_departure(vc, sim):
 
 def has_motor_vehicle(vc):
     """
-    Check if the virtual commuter has a motor vehicle
+    Check if the route finder should add car routes
     :param vc: the virtual commuter
     :return: True if the virtual commuter has a motor vehicle, False otherwise
     """
+
+    _ = """
     if "vehicles" not in vc:
         return False
 
@@ -57,6 +62,9 @@ def has_motor_vehicle(vc):
             return True
 
     return False
+    """
+
+    return True
 
 
 def has_motorcycle(vc):
@@ -89,11 +97,19 @@ def extract_traveller(vc):
     :return:
     """
 
+    created = vc["created"]
+
+    # check if created is a string
+    if type(created) == str:
+        # convert to datetime
+        created = datetime.strptime(created, "%d-%m-%Y %H:%M:%S")
+
     return {
         "employed": vc["employed"],
         "employment_type": vc["employment_type"],
         "vehicles": vc["vehicles"],
-        "age": vc["age"]
+        "age": vc["age"],
+        "vc-created": created,
     }
 
 

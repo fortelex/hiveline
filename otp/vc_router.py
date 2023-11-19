@@ -22,18 +22,26 @@ def __reset_jobs(db, sim_id):
     :return:
     """
 
+    print("Resetting jobs for simulation {}".format(sim_id))
+
     coll = db["route-calculation-jobs"]
     coll.update_many({"sim-id": sim_id},
                      {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
 
 
-def __create_route_calculation_jobs(db):
+def __create_route_calculation_jobs(db, sim_id):
     """
-    Create route calculation jobs for all virtual commuters that do not have a job yet.
+    Create route calculation jobs for all virtual commuters of a given simulation that do not have a job yet.
     :param db: the database
+    :param sim_id: the simulation id
     :return:
     """
     pipeline = [
+        {
+            "$match": {
+                "sim-id": sim_id
+            }
+        },
         {
             "$lookup": {
                 "from": "route-calculation-jobs",
@@ -45,7 +53,11 @@ def __create_route_calculation_jobs(db):
         {
             "$match": {
                 "matched_docs": {
-                    "$size": 0
+                    "$not": {
+                        "$elemMatch": {
+                            "sim-id": sim_id
+                        }
+                    }
                 }
             }
         }
@@ -56,6 +68,7 @@ def __create_route_calculation_jobs(db):
     result = coll.aggregate(pipeline)
     jobs_coll = db["route-calculation-jobs"]
 
+    print("Creating jobs for simulation {}".format(sim_id))
     for doc in result:
         vc_id = doc["vc-id"]
         sim_id = doc["sim-id"]
@@ -81,6 +94,8 @@ def __reset_timed_out_jobs(db):
     :return:
     """
     jobs_coll = db["route-calculation-jobs"]
+
+    print("Resetting timed out jobs")
 
     jobs_coll.update_many({
         "status": "running",
@@ -282,7 +297,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, 
     except pymongo.errors.DuplicateKeyError:
         if "_id" in route_results:
             del route_results["_id"]
-        route_results_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_results})
+        route_results_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_results})
 
     # extract relevant data for decision making
     route_options = {
@@ -298,7 +313,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, 
     except pymongo.errors.DuplicateKeyError:
         if "_id" in route_options:
             del route_options["_id"]
-        route_options_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_options})
+        route_options_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_options})
 
 
 def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
@@ -345,7 +360,7 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
             last_print = current_time
 
         try:
-            vc = vc_coll.find_one({"vc-id": job["vc-id"]})
+            vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
 
             should_route = vc_extract.should_route(vc)
 
@@ -416,7 +431,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     if reset_jobs:
         __reset_jobs(db, sim_id)
 
-    __create_route_calculation_jobs(db)
+    __create_route_calculation_jobs(db, sim_id)
     __reset_timed_out_jobs(db)
 
     if __no_active_jobs(db, sim_id):
@@ -427,6 +442,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     place_resources = db["place-resources"].find_one({"place-id": sim["place-id"]})
     pivot_date = sim["pivot-date"]
 
+    print("Building graph")
     resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild, graph_build_memory)
 
     proc = builder.run_server(resources["graph_file"], server_memory)
@@ -445,6 +461,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
         exit(1)
 
     try:
+        print("Starting up server...")
         __wait_for_line(proc, "Grizzly server running.")  # that is the last line printed by the server when it is ready
         print("Server started")
 

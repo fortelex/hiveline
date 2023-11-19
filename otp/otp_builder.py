@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import os
@@ -5,7 +6,10 @@ import subprocess
 import urllib.request
 from datetime import datetime, timedelta
 
+import bson
+
 import gtfs_consistency
+from mongo.mongo import get_database
 
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"
@@ -218,10 +222,17 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     """
     __clean_up_graph_file()
 
-    print("Building graph for " + place["place-id"] + " on " + target_date.isoformat())
+    # place-id is bson.ObjectId
+    place_ids = place["place-id"]
+    if not isinstance(place_ids, list):
+        place_ids = [place_ids]
+
+    place_id_str = [str(place_id) for place_id in place_ids]
+
+    print("Building graph for " + place_id_str[0] + " on " + target_date.isoformat())
     print(place)
 
-    graph_file = "./otp/data/" + place["place-id"] + "-" + target_date.isoformat().replace(":", "") + "-graph.obj"
+    graph_files = ["./otp/data/" + place_id + "-" + target_date.isoformat().replace(":", "") + "-graph.obj" for place_id in place_id_str]
 
     __ensure_otp_downloaded()
 
@@ -231,14 +242,17 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     print("OSM resource: " + str(osm_resource))
     print("GTFS resources: " + str(gtfs_resources))
 
-    if os.path.isfile(graph_file) and not force_rebuild:
-        print("Graph already built")
-        return {
-            "otp_version": version,
-            "graph_file": graph_file,
-            "osm_source": osm_resource,
-            "gtfs_sources": gtfs_resources
-        }
+    for graph_file in graph_files:
+        if os.path.isfile(graph_file) and not force_rebuild:
+            print("Graph already built")
+            return {
+                "otp_version": version,
+                "graph_file": graph_file,
+                "osm_source": osm_resource,
+                "gtfs_sources": gtfs_resources
+            }
+
+    graph_file = graph_files[0]
 
     if os.path.isfile(graph_file):
         os.remove(graph_file)
@@ -250,7 +264,8 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources], target_date)
 
     print("Building graph...")
-    subprocess.run(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
+    subprocess.run(
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
     print("Done")
 
     if not os.path.isfile("./otp/bin/graph.obj"):
@@ -298,6 +313,97 @@ def run_server(graph_file, memory_gb=4):
         }, f)
 
     print("Starting server...")
-    return subprocess.Popen(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
-                            stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    return subprocess.Popen(
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
+        stdout=subprocess.PIPE, text=True, encoding="utf-8")
+
+
+def build_common(force_rebuild=False, memory_gb=4):
+    common = {
+        "655740035f853dcf81ec7864": [  # paris
+            "2019-10-08",  # 2019-10-08T08:00:00Z  (don't specify time zone in database)
+            "2020-10-06"
+        ],
+        "65577e2f13f29b36636703ef": [  # dublin (alternative: 65577f5713f29b36636703f2)
+            "2019-10-08",
+            "2020-10-06"
+        ],
+        "6557841a13f29b36636703f7": [  # berlin
+            "2017-10-10",
+            "2018-10-09",
+            "2019-10-08",
+        ],
+        #"": [  # hamburg
+        #    "2022-10-04",
+        #],
+        "655a1771868acf560d1406b6": [  # leuven
+            "2019-10-08",
+        ],
+        "65589e7810b22a1200bd253e": [  # vienna
+            "2019-10-08",
+        ]
+    }
+
+    database = get_database()
+    place_resources = database["place-resources"]
+
+    for place_id, dates in common.items():
+        place = place_resources.find_one({"place-id": bson.ObjectId(place_id)})
+
+        if place is None:
+            print("Place not found. Skipping... (ID: " + place_id + ")")
+            continue
+
+        for target_date in dates:
+            try:
+                date = datetime.strptime(target_date + "T08:00", "%Y-%m-%dT%H:%M")
+
+                print("Building graph for " + place_id + " on " + date.isoformat())
+
+                graph = build_graph(place, date, force_rebuild, memory_gb)
+
+                if graph is None:
+                    continue
+
+                print(graph)
+            except Exception as e:
+                print(e)
+                print("Failed to build graph for " + place_id + " on " + target_date)
+
+
+def build_single(date, place_id, force_rebuild=False, memory_gb=4):
+    date = datetime.strptime(date + "T08:00", "%Y-%m-%dT%H:%M")
+
+    print("Building graph for " + place_id + " on " + date.isoformat())
+
+    database = get_database()
+    place = database["place-resources"].find_one({"place-id": bson.ObjectId(place_id)})
+
+    if place is None:
+        print("Place not found")
+        exit(1)
+
+    graph = build_graph(place, date, force_rebuild, memory_gb)
+    print(graph)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Builds a graph for a given place and date')
+    parser.add_argument('place_id', type=str, help='The place ID or "common" for all common places (see source code)')
+    parser.add_argument('--target-date', type=str, default="", help='The target date in the format YYYY-MM-DD')
+    parser.add_argument('--force-rebuild', action='store_true', help='Force rebuild of graph')
+    parser.add_argument('--memory-gb', type=int, default=4,
+                        help='The amount of memory to use for the graph build process')
+
+    args = parser.parse_args()
+
+    if args.place_id == "common":
+        build_common()
+        exit(0)
+        
+    if args.target_date == "":
+        print("please add the target-date argument for non-common building")
+
+    build_single(args.target_date, args.place_id, args.force_rebuild, args.memory_gb)
+
 

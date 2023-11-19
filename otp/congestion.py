@@ -83,7 +83,7 @@ def get_car_routes(journeys, mask=None):
     :param journeys: the journeys
     :param mask: (optional) a mask to filter out journeys
     :return: a list of objects with the following fields:
-        - vc-id: the vehicle class id
+        - vc-id: the virtual commuter id
         - option-id: the route option id
         - routes: a list of car routes
         - weight: the weight of the route option

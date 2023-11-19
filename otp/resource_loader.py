@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urljoin
 
+import bson
 import requests
 from bs4 import BeautifulSoup, NavigableString
 
@@ -177,7 +178,10 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
         location_name = place_name
 
     if place_id is None:
-        place_id = str(uuid.uuid4())
+        place_id = bson.ObjectId()
+
+    if isinstance(place_id, str):
+        place_id = bson.ObjectId(place_id)
 
     doc = {
         "osm": osm_links,

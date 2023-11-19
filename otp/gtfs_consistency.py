@@ -59,10 +59,10 @@ def fix_transfer_stops(gtfs_path):
             or not os.path.exists(routes_file):
         return False  # invalid, nothing changed
 
-    stops_df = pd.read_csv(stops_file)
-    trips_df = pd.read_csv(trips_file)
-    routes_df = pd.read_csv(routes_file)
-    transfers_df = pd.read_csv(transfers_file)
+    stops_df = pd.read_csv(stops_file, dtype=str)
+    trips_df = pd.read_csv(trips_file, dtype=str)
+    routes_df = pd.read_csv(routes_file, dtype=str)
+    transfers_df = pd.read_csv(transfers_file, dtype=str)
 
     num_transfers = len(transfers_df)
 
@@ -101,7 +101,7 @@ def fix_authorities(gtfs_path):
     if not os.path.exists(agencies_file):
         return False
 
-    agencies_df = pd.read_csv(agencies_file)
+    agencies_df = pd.read_csv(agencies_file, dtype=str)
 
     # add agency_url column if it doesn't exist
     if "agency_url" not in agencies_df.columns:
@@ -124,6 +124,8 @@ def fix_gtfs(gtfs_path):
     """
     temp_dir = "otp/data/temp"
 
+    print("Fixing GTFS: " + gtfs_path)
+
     unzip_gtfs(gtfs_path, temp_dir)
 
     has_changed = fix_transfer_stops(temp_dir)
@@ -131,8 +133,10 @@ def fix_gtfs(gtfs_path):
 
     if not has_changed:
         shutil.rmtree(temp_dir)
+        print("GTFS was not changed")
         return False  # nothing changed, skipping re-zip
 
     zip_gtfs(temp_dir, gtfs_path)
 
     shutil.rmtree(temp_dir)
+    print("GTFS was changed")

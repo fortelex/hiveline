@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import os
@@ -5,7 +6,10 @@ import subprocess
 import urllib.request
 from datetime import datetime, timedelta
 
+import bson
+
 import gtfs_consistency
+from mongo.mongo import get_database
 
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"
@@ -250,7 +254,8 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources], target_date)
 
     print("Building graph...")
-    subprocess.run(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
+    subprocess.run(
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
     print("Done")
 
     if not os.path.isfile("./otp/bin/graph.obj"):
@@ -298,6 +303,34 @@ def run_server(graph_file, memory_gb=4):
         }, f)
 
     print("Starting server...")
-    return subprocess.Popen(["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
-                            stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    return subprocess.Popen(
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
+        stdout=subprocess.PIPE, text=True, encoding="utf-8")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Builds a graph for a given place and date')
+    parser.add_argument('place_id', type=str, help='The place ID')
+    parser.add_argument('target_date', type=str, help='The target date in the format YYYY-MM-DD')
+    parser.add_argument('--force-rebuild', action='store_true', help='Force rebuild of graph')
+    parser.add_argument('--memory-gb', type=int, default=4,
+                        help='The amount of memory to use for the graph build process')
+
+    args = parser.parse_args()
+
+    place_id = args.place_id
+    date = datetime.strptime(args.target_date + "T08:00", "%Y-%m-%dT%H:%M")
+    force_rebuild = args.force_rebuild
+
+    print("Building graph for " + place_id + " on " + date.isoformat())
+
+    database = get_database()
+    place = database["place-resources"].find_one({"place-id": bson.ObjectId(place_id)})
+
+    if place is None:
+        print("Place not found")
+        exit(1)
+
+    graph = build_graph(place, date, force_rebuild, args.memory_gb)
+    print(graph)
 

@@ -12,7 +12,7 @@ def unzip_gtfs(zip_path, unzip_path):
     :param unzip_path: The path to the folder to unzip to
     :return:
     """
-    if os.path.exists(unzip_path): # delete existing folder
+    if os.path.exists(unzip_path):  # delete existing folder
         shutil.rmtree(unzip_path)
 
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -46,22 +46,41 @@ def zip_gtfs(unzip_path, zip_path):
 
 def fix_transfer_stops(gtfs_path):
     """
-    Remove transfers that reference stops that don't exist
+    Remove transfers that reference stops, routes or trips that don't exist
     :param gtfs_path: The path to the GTFS folder
     :return: True if the GTFS was changed, False if it was not
     """
     stops_file = gtfs_path + "/stops.txt"
+    trips_file = gtfs_path + "/trips.txt"
+    routes_file = gtfs_path + "/routes.txt"
     transfers_file = gtfs_path + "/transfers.txt"
 
-    if not os.path.exists(transfers_file) or not os.path.exists(stops_file):
-        return False  # nothing changed
+    if not os.path.exists(transfers_file) or not os.path.exists(stops_file) or not os.path.exists(trips_file) \
+            or not os.path.exists(routes_file):
+        return False  # invalid, nothing changed
 
     stops_df = pd.read_csv(stops_file)
+    trips_df = pd.read_csv(trips_file)
+    routes_df = pd.read_csv(routes_file)
     transfers_df = pd.read_csv(transfers_file)
 
     num_transfers = len(transfers_df)
+
+    # remove transfers that reference stops that don't exist
     transfers_df = transfers_df[transfers_df["from_stop_id"].isin(stops_df["stop_id"])]
     transfers_df = transfers_df[transfers_df["to_stop_id"].isin(stops_df["stop_id"])]
+
+    # remove transfers that reference trips that don't exist (only if the trip id is not empty)
+    transfers_df = transfers_df[
+        transfers_df["from_trip_id"].isin(trips_df["trip_id"]) | transfers_df["from_trip_id"].isnull()]
+    transfers_df = transfers_df[
+        transfers_df["to_trip_id"].isin(trips_df["trip_id"]) | transfers_df["to_trip_id"].isnull()]
+
+    # remove transfers that reference routes that don't exist (only if the route id is not empty)
+    transfers_df = transfers_df[
+        transfers_df["from_route_id"].isin(routes_df["route_id"]) | transfers_df["from_route_id"].isnull()]
+    transfers_df = transfers_df[
+        transfers_df["to_route_id"].isin(routes_df["route_id"]) | transfers_df["to_route_id"].isnull()]
 
     if len(transfers_df) == num_transfers:
         return False  # nothing changed

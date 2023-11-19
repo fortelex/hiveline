@@ -54,30 +54,16 @@ class Place():
         '''
         # Create an empty dataframe to write data into
         self.tiles = gpd.GeoDataFrame([], columns=['h3', 'geometry'])
-        # Convert multipolygon into list of polygons
-
-        def multi_to_list(multipolygon):
-            '''
-            Convert a multipolygon to a list of polygons
-            '''
-            l = []
-            for coords in multipolygon['coordinates']:
-                # quick fix, may need to be refined
-                if np.ndim(coords) == 3:
-                    coords = coords[0]
-                list_coords = [[list(x) for x in coords]]
-                l.append({
-                    'type': 'Polygon',
-                    'coordinates': list_coords
-                })
-            return l
 
         multipolygon = self.shape['geometry'][0]
-        # Convert to GeoJSON
-        multipoly_geojson = gpd.GeoSeries([multipolygon]).__geo_interface__
-        # Parse out geometry key from GeoJSON
-        multipoly_geojson = multipoly_geojson['features'][0]['geometry']
-        poly_list = multi_to_list(multipoly_geojson)
+        # multipolygon to list of polygons
+        if multipolygon.geom_type == 'MultiPolygon':
+            poly_list = [shapely.geometry.Polygon(poly.exterior.coords).__geo_interface__ for poly in multipolygon.geoms]
+        elif multipolygon.geom_type == 'Polygon':
+            poly_list = [multipolygon.__geo_interface__]
+        else:
+            raise Exception('city shape is neither a Polygon nor a MultiPolygon')
+        
         for poly_geojson in poly_list:
             # Fill the dictionary with Resolution 8 H3 Hexagons
             h3_hexes = h3.polyfill_geojson(poly_geojson, h3_resolution)
@@ -241,7 +227,7 @@ class Place():
         destination = self.tiles.copy()
 
         # area of a whole single hexagonal tile
-        tile_area = self.tiles.to_crs(epsg=6933).head(1)['geometry'].area
+        tile_area = self.tiles.to_crs(epsg=6933).head(1)['geometry'].area.item()
 
         for i, tile in destination.iterrows():
             for interest in self.zones.keys():
@@ -283,7 +269,7 @@ class Place():
 
         # calculate parking probabilities for each tile
         for i, tile in destination.iterrows():
-            dsty = destination.loc[i,'building_density']
+            dsty = tile['building_density']
             for p in prkg_locations:
                 for v in prkg_vehicles:
                     min_prob_bldg_dsty = parking_prob[p][v]['min_prob_bldg_dsty']
@@ -310,10 +296,10 @@ class Place():
         '''
         nuts = gpd.read_file(nuts_file)
         # keep only the most precise level as it contains the other
-        nuts3 = nuts[nuts['LEVL_CODE'] == 3][['id', 'geometry']]
-        # nuts regions that overlaps with the city
-        place_regions = nuts3.loc[nuts3.overlaps(
-            self.shape['geometry'][0]), ['id', 'geometry']]
+        nuts3 = nuts[nuts['LEVL_CODE'] == 3][['id', 'geometry']].reset_index(drop=True)
+        del nuts
+        # nuts regions that intersects with the city (not overlaps)
+        place_regions = nuts3.loc[nuts3.intersects(self.shape['geometry'][0]), ['id', 'geometry']]
         place_regions = place_regions.reset_index(drop=True)
         # due to precision differences, the city is overlapping with several regions instead of one
         # regions are defined according to cities boundaries so there should be one region assigned to a city

@@ -17,29 +17,29 @@ default_work_coefficient = 0.3
 parking_prob ={
     'destination':{ # workplace
         'car':{
-            'min_prob_bldg_dsty':0.5,
-            'min_prob':0.05,
-            'max_prob_bldg_dsty':0.05,
+            'min_prob_bldg_dsty':0.8,
+            'min_prob':0.3,
+            'max_prob_bldg_dsty':0.3,
             'max_prob':1.0
         },
         'moto':{
-            'min_prob_bldg_dsty':0.5,
-            'min_prob':0.2,
-            'max_prob_bldg_dsty':0.05,
+            'min_prob_bldg_dsty':0.95,
+            'min_prob':0.4,
+            'max_prob_bldg_dsty':0.3,
             'max_prob':1.0
         }
     },
     'origin':{ # home
         'car':{
-            'min_prob_bldg_dsty':0.5,
-            'min_prob':0.1,
-            'max_prob_bldg_dsty':0.05,
+            'min_prob_bldg_dsty':0.8,
+            'min_prob':0.3,
+            'max_prob_bldg_dsty':0.3,
             'max_prob':1.0
         },
         'moto':{
-            'min_prob_bldg_dsty':0.5,
+            'min_prob_bldg_dsty':0.95,
             'min_prob':0.4,
-            'max_prob_bldg_dsty':0.05,
+            'max_prob_bldg_dsty':0.3,
             'max_prob':1.0
         }
     }

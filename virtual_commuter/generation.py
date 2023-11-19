@@ -22,7 +22,7 @@ pivot_date = datetime(2021, 6, 6, 8, 0, 0, 0, tzinfo=timezone.utc)
 sim_id = str(uuid.uuid4())
 num_virtual_commuters = 2000
 
-# Export simulation to mongo db
+#Export simulation to mongo db
 db["simulations"].insert_one({
     "sim-id": sim_id,
     "place-id": place_id,
@@ -39,6 +39,6 @@ vc_gen = VirtualCommuterGenerator(city)
 for i in range(num_virtual_commuters):
     virtual_commuter = vc_gen.generate_commuter(sim_id)
     virtual_commuter.export_to_mongo(db)
-    
+
 print("Done")
 print("sim-id: " + sim_id)

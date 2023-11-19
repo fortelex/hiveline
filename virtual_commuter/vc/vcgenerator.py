@@ -2,6 +2,9 @@ import random
 import numpy as np
 from shapely.geometry import Point
 from .virtualcommuter import VirtualCommuter
+from shapely.ops import transform
+from shapely.geometry import LineString
+from pyproj import Transformer
 import os
 import sys
 from dotenv import load_dotenv
@@ -74,6 +77,23 @@ def rand_point_in_polygon(polygon):
         if polygon.contains(loc):
             return loc
     return False
+
+def distance(a,b):
+    '''
+    Project and compute distance between two points
+    Args:
+        a, b (shapely.geometry.Point): the points to compute distance
+    '''
+    # distance is 0 if one of the point is not defined
+    if not (a and b):
+        return 0
+        
+    crs_transformer = Transformer.from_crs("epsg:4326", "epsg:6933", always_xy=True)
+    proj_a = transform(crs_transformer.transform, a)
+    proj_b = transform(crs_transformer.transform, b)
+    d = proj_a.distance(proj_b)
+    return round(d, 2)
+
 
 
 class VirtualCommuterGenerator():
@@ -245,7 +265,7 @@ class VirtualCommuterGenerator():
         if age == 'under_20':
             return None
         vehicle_proba = self.get_demo_stat(self.region, prefix+vehicle_type).item()
-        # weight probability by parking  
+        # weight probability by parking
         if vehicle_type in ['car', 'moto']:
             vehicle_proba = self.vehicle_proba_with_parking(vehicle_type, vehicle_proba, origin_tile)
         # can have multiple cars
@@ -262,11 +282,13 @@ class VirtualCommuterGenerator():
             value = 1 if rand() < vehicle_proba else None
         return value
     
-    def generate_vehicle_usage(self, vehicles, distance_to_work):
+    def generate_vehicle_usage(self, vehicles, distance_to_work, dest_tile):
         '''
         Chose if a vs use a vehicle to go to work
         Args:
             vehicles (dict): the owned vehicles
+            distance_to_work (float): the distance between origin and destnation, in m
+            dest_tile (int): the id to the destination tile
         Returns:
             (dict): the same dict with an additional field: 'usage'
         '''
@@ -275,7 +297,7 @@ class VirtualCommuterGenerator():
         for v in ['car', 'moto']:
             if vehicles[v]:
                 if distance_to_work > min_distance_to_take_car:
-                    parking_proba = self.get_demo_stat(self.region, 'parking_destination_'+v).item()
+                    parking_proba = self.get_tile_data(dest_tile, 'parking_destination_'+v).item()
                     if rand() < parking_proba:
                         usage = v
         # high proba to use a utility vehicle
@@ -302,9 +324,9 @@ class VirtualCommuterGenerator():
         if employed:
             employment_type = self.generate_variable('employment_type')
         destination_tile, destination = self.generate_destination(age, employment_type)
-        od_distance = origin.distance(destination)
+        od_distance = distance(origin, destination)
         vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type, origin_tile) for vehicle_type in ['car', 'moto', 'utilities'] }
-        vehicles = self.generate_vehicle_usage(vehicles, od_distance)
+        vehicles = self.generate_vehicle_usage(vehicles, od_distance, destination_tile)
 
         vc = VirtualCommuter(sim_id, origin_tile, origin, destination_tile, destination, self.region, age, employed, employment_type, vehicles)
         self.region = None

@@ -102,7 +102,7 @@ def extract_traveller(vc):
     # check if created is a string
     if type(created) == str:
         # convert to datetime
-        created = datetime.strptime(created, "%Y-%m-%d %H:%M:%S.%f")
+        created = datetime.strptime(created, "%Y-%m-%d %H:%M:%S")
 
     return {
         "employed": vc["employed"],

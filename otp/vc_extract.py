@@ -1,3 +1,6 @@
+from datetime import datetime
+
+
 def extract_origin_loc(vc):
     """
     Extract the origin location from a virtual commuter
@@ -94,11 +97,19 @@ def extract_traveller(vc):
     :return:
     """
 
+    created = vc["created"]
+
+    # check if created is a string
+    if type(created) == str:
+        # convert to datetime
+        created = datetime.strptime(created, "%Y-%m-%d %H:%M:%S.%f")
+
     return {
         "employed": vc["employed"],
         "employment_type": vc["employment_type"],
         "vehicles": vc["vehicles"],
-        "age": vc["age"]
+        "age": vc["age"],
+        "vc-created": created,
     }
 
 

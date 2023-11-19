@@ -22,18 +22,26 @@ def __reset_jobs(db, sim_id):
     :return:
     """
 
+    print("Resetting jobs for simulation {}".format(sim_id))
+
     coll = db["route-calculation-jobs"]
     coll.update_many({"sim-id": sim_id},
                      {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
 
 
-def __create_route_calculation_jobs(db):
+def __create_route_calculation_jobs(db, sim_id):
     """
-    Create route calculation jobs for all virtual commuters that do not have a job yet.
+    Create route calculation jobs for all virtual commuters of a given simulation that do not have a job yet.
     :param db: the database
+    :param sim_id: the simulation id
     :return:
     """
     pipeline = [
+        {
+            "$match": {
+                "sim-id": sim_id
+            }
+        },
         {
             "$lookup": {
                 "from": "route-calculation-jobs",
@@ -56,6 +64,7 @@ def __create_route_calculation_jobs(db):
     result = coll.aggregate(pipeline)
     jobs_coll = db["route-calculation-jobs"]
 
+    print("Creating jobs for simulation {}".format(sim_id))
     for doc in result:
         vc_id = doc["vc-id"]
         sim_id = doc["sim-id"]
@@ -81,6 +90,8 @@ def __reset_timed_out_jobs(db):
     :return:
     """
     jobs_coll = db["route-calculation-jobs"]
+
+    print("Resetting timed out jobs")
 
     jobs_coll.update_many({
         "status": "running",
@@ -416,7 +427,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     if reset_jobs:
         __reset_jobs(db, sim_id)
 
-    __create_route_calculation_jobs(db)
+    __create_route_calculation_jobs(db, sim_id)
     __reset_timed_out_jobs(db)
 
     if __no_active_jobs(db, sim_id):
@@ -427,6 +438,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     place_resources = db["place-resources"].find_one({"place-id": sim["place-id"]})
     pivot_date = sim["pivot-date"]
 
+    print("Building graph")
     resources = builder.build_graph(place_resources, pivot_date, force_graph_rebuild, graph_build_memory)
 
     proc = builder.run_server(resources["graph_file"], server_memory)
@@ -445,6 +457,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
         exit(1)
 
     try:
+        print("Starting up server...")
         __wait_for_line(proc, "Grizzly server running.")  # that is the last line printed by the server when it is ready
         print("Server started")
 

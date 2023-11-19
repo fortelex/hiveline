@@ -71,16 +71,20 @@ def fix_transfer_stops(gtfs_path):
     transfers_df = transfers_df[transfers_df["to_stop_id"].isin(stops_df["stop_id"])]
 
     # remove transfers that reference trips that don't exist (only if the trip id is not empty)
-    transfers_df = transfers_df[
-        transfers_df["from_trip_id"].isin(trips_df["trip_id"]) | transfers_df["from_trip_id"].isnull()]
-    transfers_df = transfers_df[
-        transfers_df["to_trip_id"].isin(trips_df["trip_id"]) | transfers_df["to_trip_id"].isnull()]
+    if "from_trip_id" in transfers_df.columns:
+        transfers_df = transfers_df[
+            transfers_df["from_trip_id"].isin(trips_df["trip_id"]) | transfers_df["from_trip_id"].isnull()]
+    if "to_trip_id" in transfers_df.columns:
+        transfers_df = transfers_df[
+            transfers_df["to_trip_id"].isin(trips_df["trip_id"]) | transfers_df["to_trip_id"].isnull()]
 
     # remove transfers that reference routes that don't exist (only if the route id is not empty)
-    transfers_df = transfers_df[
-        transfers_df["from_route_id"].isin(routes_df["route_id"]) | transfers_df["from_route_id"].isnull()]
-    transfers_df = transfers_df[
-        transfers_df["to_route_id"].isin(routes_df["route_id"]) | transfers_df["to_route_id"].isnull()]
+    if "from_route_id" in transfers_df.columns:
+        transfers_df = transfers_df[
+            transfers_df["from_route_id"].isin(routes_df["route_id"]) | transfers_df["from_route_id"].isnull()]
+    if "to_route_id" in transfers_df.columns:
+        transfers_df = transfers_df[
+            transfers_df["to_route_id"].isin(routes_df["route_id"]) | transfers_df["to_route_id"].isnull()]
 
     if len(transfers_df) == num_transfers:
         return False  # nothing changed

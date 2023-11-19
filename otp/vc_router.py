@@ -297,7 +297,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, 
     except pymongo.errors.DuplicateKeyError:
         if "_id" in route_results:
             del route_results["_id"]
-        route_results_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_results})
+        route_results_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_results})
 
     # extract relevant data for decision making
     route_options = {
@@ -313,7 +313,7 @@ def __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, 
     except pymongo.errors.DuplicateKeyError:
         if "_id" in route_options:
             del route_options["_id"]
-        route_options_coll.update_one({"vc-id": vc["vc-id"]}, {"$set": route_options})
+        route_options_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_options})
 
 
 def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
@@ -360,7 +360,7 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1):
             last_print = current_time
 
         try:
-            vc = vc_coll.find_one({"vc-id": job["vc-id"]})
+            vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
 
             should_route = vc_extract.should_route(vc)
 

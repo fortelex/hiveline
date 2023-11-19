@@ -390,7 +390,7 @@ def build_single(date, place_id, force_rebuild=False, memory_gb=4):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Builds a graph for a given place and date')
     parser.add_argument('place_id', type=str, help='The place ID or "common" for all common places (see source code)')
-    parser.add_argument('target_date', type=str, default="", help='The target date in the format YYYY-MM-DD')
+    parser.add_argument('--target-date', type=str, default="", help='The target date in the format YYYY-MM-DD')
     parser.add_argument('--force-rebuild', action='store_true', help='Force rebuild of graph')
     parser.add_argument('--memory-gb', type=int, default=4,
                         help='The amount of memory to use for the graph build process')
@@ -400,6 +400,9 @@ if __name__ == "__main__":
     if args.place_id == "common":
         build_common()
         exit(0)
+        
+    if args.target_date == "":
+        print("please add the target-date argument for non-common building)
 
     build_single(args.target_date, args.place_id, args.force_rebuild, args.memory_gb)
 

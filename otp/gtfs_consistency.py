@@ -73,7 +73,7 @@ def fix_transfer_stops(gtfs_path):
 
 def fix_authorities(gtfs_path):
     """
-    If the column "agency_url" is missing from the agencies.txt file, add it
+    If a value in the column "agency_url" is missing from the agencies.txt file, add it
     :param gtfs_path: The path to the GTFS folder
     :return: True if the GTFS was changed, False if it was not
     """
@@ -84,10 +84,12 @@ def fix_authorities(gtfs_path):
 
     agencies_df = pd.read_csv(agencies_file)
 
-    if "agency_url" in agencies_df.columns:
-        return False
+    # add agency_url column if it doesn't exist
+    if "agency_url" not in agencies_df.columns:
+        agencies_df["agency_url"] = "-"
 
-    agencies_df["agency_url"] = ""
+    # add "-" to each row if agency_url is empty string
+    agencies_df["agency_url"] = agencies_df["agency_url"].fillna("-")
 
     agencies_df.to_csv(agencies_file, index=False)
 

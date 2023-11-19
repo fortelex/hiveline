@@ -222,10 +222,12 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     """
     __clean_up_graph_file()
 
-    print("Building graph for " + place["place-id"] + " on " + target_date.isoformat())
+    # place-id is bson.ObjectId
+    place_id_str = str(place["place-id"])
+    print("Building graph for " + place_id_str + " on " + target_date.isoformat())
     print(place)
 
-    graph_file = "./otp/data/" + place["place-id"] + "-" + target_date.isoformat().replace(":", "") + "-graph.obj"
+    graph_file = "./otp/data/" + place_id_str + "-" + target_date.isoformat().replace(":", "") + "-graph.obj"
 
     __ensure_otp_downloaded()
 

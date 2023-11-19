@@ -13,8 +13,11 @@ def get_time(timestamp):
 
 
 def add_traces_to_map(map_f, traces, max_users=1000):
-    for tdf in traces:
-        map_f = tdf.plot_trajectory(map_f=map_f, max_points=None, start_end_markers=False, max_users=max_users)
+    for trace in traces:
+        tdf = trace["tdf"]
+        color = trace["color"]
+        map_f = tdf.plot_trajectory(map_f=map_f, max_points=None, start_end_markers=False, max_users=max_users,
+                                    hex_color=color)
 
     return map_f
 
@@ -93,14 +96,27 @@ def get_simulation_traces(db, sim_id, max_traces=None):
 def extract_traces(route_results, max_traces=None):
     traces = []
 
+    color_map = {
+        "walk": "#D280CE",
+        "car": "#FE5F55",
+        "bus": "#F0B67F",
+        "rail": "#F7F4D3"
+    }
+
     for result in route_results:
-        print("got a result")
         for option in result["options"]:
             if option is None:
                 continue
 
+            option_id = option["route-option-id"]
+
             for itinerary in option["itineraries"]:
                 line = []
+
+                rail_usage = 0
+                bus_usage = 0
+                walk_usage = 0
+                car_usage = 0
 
                 for leg in itinerary["legs"]:
                     points = polyline.decode(leg["legGeometry"]["points"])
@@ -111,16 +127,50 @@ def extract_traces(route_results, max_traces=None):
                     if "rtEndTime" in leg:
                         end_date = leg["rtEndTime"]
 
-                    diff = end_date - start_date
+                    duration = end_date - start_date
                     num_points = len(points)
 
-                    trajectory = [[point[0], point[1], get_time(start_date + (diff * i / num_points))] for i, point in
+                    trajectory = [[point[0], point[1], get_time(start_date + (duration * i / num_points)), option_id]
+                                  for i, point in
                                   enumerate(points)]
 
                     line.extend(trajectory)
 
-                tdf = skmob.TrajDataFrame(line, latitude=0, longitude=1, datetime=2)
-                traces.append(tdf)
+                    mode = leg["mode"].lower()
+
+                    if mode == "walk":
+                        walk_usage += duration
+                    elif mode == "car":
+                        car_usage += duration
+                    elif mode == "bus":
+                        bus_usage += duration
+                    elif mode == "rail" or mode == "subway" or mode == "tram":
+                        rail_usage += duration
+
+                longest_mode = "rail"
+                longest_duration = rail_usage
+
+                if car_usage > longest_duration:
+                    longest_mode = "car"
+                    longest_duration = car_usage
+
+                if bus_usage > longest_duration:
+                    longest_mode = "bus"
+                    longest_duration = bus_usage
+
+                if rail_usage > longest_duration:
+                    longest_mode = "rail"
+                    longest_duration = rail_usage
+
+                if car_usage == 0 and bus_usage == 0 and rail_usage == 0:
+                    longest_mode = "walk"
+                    longest_duration = walk_usage
+
+                tdf = skmob.TrajDataFrame(line, latitude=0, longitude=1, datetime=2, user_id=3)
+                traces.append({
+                    "tdf": tdf,
+                    "color": color_map[longest_mode]
+                })
 
                 if max_traces is not None and len(traces) >= max_traces:
                     return traces

@@ -378,6 +378,7 @@ def plot_congestion_for_sim(sim_id):
     f_map.save("congestion.html")
 
 
+# use random.systemrandom() instead of random.random() for better randomness
 if __name__ == "__main__":
     # plot_vehicle_factors("735a3098-8a19-4252-9ca8-9372891e90b3")
     plot_congestion_for_sim("735a3098-8a19-4252-9ca8-9372891e90b3")

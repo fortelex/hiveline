@@ -24,6 +24,8 @@ def __get_graph(date_str, place_name, graph_file_location):
     ox.save_graphml(graph, filepath=graph_file_location)
     print("Graph saved.")
 
+    return graph
+
 
 def get_graph(db, sim_id, place_name=None, undirected=False):
     """
@@ -72,4 +74,4 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
         ox.save_graphml(graph, filepath=graph_file_location)
         return graph
 
-    __get_graph(date_str, place_name, graph_file_location)
+    return __get_graph(date_str, place_name, graph_file_location)

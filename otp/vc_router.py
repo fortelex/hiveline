@@ -53,7 +53,11 @@ def __create_route_calculation_jobs(db, sim_id):
         {
             "$match": {
                 "matched_docs": {
-                    "$size": 0
+                    "$not": {
+                        "$elemMatch": {
+                            "sim-id": sim_id
+                        }
+                    }
                 }
             }
         }

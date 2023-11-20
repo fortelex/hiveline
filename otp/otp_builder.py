@@ -177,6 +177,23 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
     return links
 
 
+def __use_run_config(api_processing_timeout=20):
+    """
+    Updates the run config file based on the parameters given
+    :param api_processing_timeout: The timeout for the API processing step, in seconds
+    :return:
+    """
+
+    config = {
+        "server": {
+            "apiProcessingTimeout": str(api_processing_timeout) + "s"
+        }
+    }
+
+    with open("otp/bin/router-config.json", "w") as f:
+        json.dump(config, f)
+
+
 def __use_build_config(osm_files, gtfs_files, target_date):
     """
     Updates the build config file based on the given OSM and GTFS files.
@@ -285,12 +302,13 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     }
 
 
-def run_server(graph_file, memory_gb=4):
+def run_server(graph_file, memory_gb=4, api_timeout=20):
     """
     Runs the OTP server with the given graph file. You can use build_graph to build the graph file. It will use
     Popen to run the server, so you can use the returned process object to terminate the server.
     :param graph_file: The path to the graph file
     :param memory_gb: The amount of memory to use for the server
+    :param api_timeout: The timeout for the OTP API
     :return: The process object of the server
     """
     __clean_up_graph_file()
@@ -303,6 +321,8 @@ def run_server(graph_file, memory_gb=4):
 
     print("Moving graph file...")
     os.rename(graph_file, "./otp/bin/graph.obj")
+
+    __use_run_config(api_timeout)
 
     # store graph file name prefix
     graph_file_prefix = os.path.basename(graph_file).rstrip("-graph.obj")

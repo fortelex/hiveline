@@ -9,7 +9,7 @@ from selenium import webdriver
 
 import vc_extract
 
-sim_id = "0ee97ddf-333e-4f62-b3de-8d7f52459065"
+sim_id = "3e173b8e-cb94-4c0d-aa07-4992f0929f95"
 
 html_file = "./test.html"
 abs_path = "file:///" + os.path.abspath(html_file)

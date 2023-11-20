@@ -40,7 +40,6 @@ def has_motor_vehicle(vc):
     :return: True if the virtual commuter has a motor vehicle, False otherwise
     """
 
-    _ = """
     if "vehicles" not in vc:
         return False
 
@@ -62,9 +61,6 @@ def has_motor_vehicle(vc):
             return True
 
     return False
-    """
-
-    return True
 
 
 def has_motorcycle(vc):
@@ -111,6 +107,34 @@ def extract_traveller(vc):
         "age": vc["age"],
         "vc-created": created,
     }
+
+
+def would_use_motorized_vehicle(vc):
+    """
+    Check if the virtual commuter would use a motorized vehicle based on the usage field in vehicles
+    :param vc: the virtual commuter
+    :return: True if the virtual commuter would use a motorized vehicle, False otherwise
+    """
+    if "vehicles" not in vc:
+        return False
+
+    vehicles = vc["vehicles"]
+
+    if "usage" not in vehicles:
+        return False
+
+    usage = vehicles["usage"]
+
+    if usage is None:
+        return False
+
+    if type(usage) != str:
+        return False
+
+    if usage is None:
+        return False
+
+    return True
 
 
 def __validate_location(loc):

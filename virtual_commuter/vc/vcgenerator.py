@@ -2,12 +2,16 @@ import random
 import numpy as np
 from shapely.geometry import Point
 from .virtualcommuter import VirtualCommuter
+from shapely.ops import transform
+from shapely.geometry import LineString
+from pyproj import Transformer
 import os
 import sys
 from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.getenv("PROJECT_PATH"))
 from origin_destination.od.stats import Stats
+from origin_destination.od.variables import min_distance_to_take_car
 from mongo import mongo
 
 # better random
@@ -74,6 +78,23 @@ def rand_point_in_polygon(polygon):
             return loc
     return False
 
+def distance(a,b):
+    '''
+    Project and compute distance between two points
+    Args:
+        a, b (shapely.geometry.Point): the points to compute distance
+    '''
+    # distance is 0 if one of the point is not defined
+    if not (a and b):
+        return 0
+        
+    crs_transformer = Transformer.from_crs("epsg:4326", "epsg:6933", always_xy=True)
+    proj_a = transform(crs_transformer.transform, a)
+    proj_b = transform(crs_transformer.transform, b)
+    d = proj_a.distance(proj_b)
+    return round(d, 2)
+
+
 
 class VirtualCommuterGenerator():
     def __init__(self, city):
@@ -113,11 +134,22 @@ class VirtualCommuterGenerator():
         '''
         return self.stats.demographic.loc[self.stats.demographic['nuts3']==region, stat]
     
+    def get_tile_data(self, tile, columns):
+        '''
+        Filter tiles data for given tile and columns
+        Args:
+            tile (int): the tile id to filter
+            columns (list of str): the columns to filter
+        Returns:
+            (pd.DataFrame): the filtered dataframe
+        '''
+        return self.city.data.loc[self.city.data['h3']==tile, columns]
+    
     def rand_point_in_tile(self, tile):
         '''
         Get a random point within a tile
         Args:
-            tile (str): the tile id
+            tile (int): the tile id
         Returns:
             (shapely point): a geo point
         '''
@@ -131,7 +163,7 @@ class VirtualCommuterGenerator():
         Generate random origin point
         Random tile according to population distribution, then random point in tile.
         Returns:
-            tile (str): the tile id
+            tile (int): the tile id
             loc (shapely point): a geo point
         '''
         population = self.city.data[['h3', 'population']].copy()
@@ -182,7 +214,7 @@ class VirtualCommuterGenerator():
             age (str): the age category
             employment_type (str): the employment type category
         Returns:
-            tile (str): the tile id
+            tile (int): the tile id
             loc (shapely point): a geo point
         '''
         if age == 'under_20':
@@ -196,8 +228,31 @@ class VirtualCommuterGenerator():
         tile = rand_choice(interest_df['h3'], interest_df[interest])
         loc = self.rand_point_in_tile(tile)
         return tile, loc
+    
+    def vehicle_proba_with_parking(self, vehicle_type, vehicle_proba, origin_tile):
+        '''
+        Adapt the probability of owning a vehicle with the proba of home parking (based on building density)
+        It results in increasing the probability of having a car in suburbs
+        The overall car probability in the city remains the same
+        Args:
+            vehicle_type (str): the type of vehicle ('car' or 'moto')
+            vehicle_proba (float): the initial probability of having a vehicle in the region
+            origin_tile (int): the origin tile id
+        Returns:
+            (float): the weighted probability of having a car
+        '''
+        park_col = 'parking_origin_'+vehicle_type
+        city_data = self.city.data[['population', park_col]].copy()
+        tile_population = self.get_tile_data(origin_tile, 'population').item()
+        tile_parking_home = self.get_tile_data(origin_tile, park_col).item()
+        tile_pop_percent =tile_population/city_data['population'].sum()
+        tile_park_softmax = np.exp(tile_parking_home)/np.sum(np.exp(city_data[park_col]), axis=0)
+        tile_park_weight = tile_park_softmax/tile_pop_percent
+        weighted_vehicle_proba = vehicle_proba * tile_park_weight
+        return weighted_vehicle_proba
 
-    def generate_vehicle(self, age, vehicle_type):
+
+    def generate_vehicle(self, age, vehicle_type, origin_tile):
         '''
         Chose if a vc owns a vehicle of a given type
         Args:
@@ -210,10 +265,48 @@ class VirtualCommuterGenerator():
         if age == 'under_20':
             return None
         vehicle_proba = self.get_demo_stat(self.region, prefix+vehicle_type).item()
-        vehicle = rand() < vehicle_proba
-        # boolean to count as it can be later improved (a person can have multiple cars)
-        value = 1 if vehicle else None
+        # weight probability by parking
+        if vehicle_type in ['car', 'moto']:
+            vehicle_proba = self.vehicle_proba_with_parking(vehicle_type, vehicle_proba, origin_tile)
+        # can have multiple cars
+        if vehicle_proba > 1:
+            # not perfect, for now more than 2 cars (rare for an average) is giving a random int between 2 and ceil(vehicle_proba) with equal proba
+            if vehicle_proba > 2:
+                value = randint(2, np.ceil(vehicle_proba))
+            # in case the average is between 1 and 2, it can be solved
+            else:
+                proba_2_cars = vehicle_proba-1
+                value = 2 if rand() < proba_2_cars else 1
+        # most common case, car per person < 1
+        else:
+            value = 1 if rand() < vehicle_proba else None
         return value
+    
+    def generate_vehicle_usage(self, vehicles, distance_to_work, dest_tile):
+        '''
+        Chose if a vs use a vehicle to go to work
+        Args:
+            vehicles (dict): the owned vehicles
+            distance_to_work (float): the distance between origin and destnation, in m
+            dest_tile (int): the id to the destination tile
+        Returns:
+            (dict): the same dict with an additional field: 'usage'
+        '''
+        usage = None
+        # use a car or moto if the distance is long enough and there is a corresponding parking at workplace
+        for v in ['car', 'moto']:
+            if vehicles[v]:
+                if distance_to_work > min_distance_to_take_car:
+                    parking_proba = self.get_tile_data(dest_tile, 'parking_destination_'+v).item()
+                    if rand() < parking_proba:
+                        usage = v
+        # high proba to use a utility vehicle
+        if vehicles['utilities']:
+            if rand() < 0.95:
+                usage = 'utilities' 
+        vehicles['usage'] = usage
+        return vehicles
+
     
     def generate_commuter(self, sim_id):
         '''
@@ -231,7 +324,9 @@ class VirtualCommuterGenerator():
         if employed:
             employment_type = self.generate_variable('employment_type')
         destination_tile, destination = self.generate_destination(age, employment_type)
-        vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type) for vehicle_type in ['car', 'moto', 'utilities'] }
+        od_distance = distance(origin, destination)
+        vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type, origin_tile) for vehicle_type in ['car', 'moto', 'utilities'] }
+        vehicles = self.generate_vehicle_usage(vehicles, od_distance, destination_tile)
 
         vc = VirtualCommuter(sim_id, origin_tile, origin, destination_tile, destination, self.region, age, employed, employment_type, vehicles)
         self.region = None

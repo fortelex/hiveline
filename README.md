@@ -65,7 +65,7 @@ dataset to simulate delays based on historical delay histograms. We can even inc
 step, so that if a virtual commuter can't catch a train due to a delay or cancellation, the route is recalculated.
 
 Example of a delay histogram for German regional public transport:
-![Delay Histogram](docs/img/db_delays.png)
+![Delay Histogram](docs/img/db_delays.PNG)
 
 ### Congestion Simulation
 

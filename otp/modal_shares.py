@@ -1,12 +1,16 @@
 import datetime
 import json
 import math
+import os
 import random
+import time
 import uuid
 
 import folium
+import matplotlib.colors
 import numpy as np
 from matplotlib import pyplot as plt
+from selenium import webdriver
 
 from mongo.mongo import get_database
 import vc_extract
@@ -26,7 +30,7 @@ class Params:
     vcs_car_usage_start = 0.5
     mix_factor = 0.1
     max_iterations = 100
-    car_owner_override = 0.5  # probability that a car owner will choose a car even though there is not pariking
+    car_owner_override = 0  # probability that a car owner will choose a car even though there is not parking
 
     congestion_options = congestion.CongestionOptions()
 
@@ -45,12 +49,13 @@ def __option_has_car(option):
     return False
 
 
-def get_modal_share(route_options, mask=None, delay_set=None, params=None):
+def get_modal_share(route_options, mask=None, delay_set=None, out_selection=None, params=None):
     """
     Get the modal share for a set of route options
     :param route_options: the route options
     :param mask: (optional) a mask to apply to the route options
     :param delay_set: (optional) a set of route-option-ids to delay (dictionary with route option id as key and delay in seconds as value)
+    :param out_selection: (optional) a list to store the selected route options (route-option-id list)
     :param params: (optional) the simulation parameters
     :return: a dictionary with the modal share
     """
@@ -170,6 +175,9 @@ def get_modal_share(route_options, mask=None, delay_set=None, params=None):
         if out_mask is not None:
             out_mask[i] = is_car  # if the fastest mode is a car, use a car
 
+        if out_selection is not None:
+            out_selection[i] = fastest_option["route-option-id"]
+
         if is_car and is_transit:
             print("Mixed mode trip. Skipping.")
             continue
@@ -234,7 +242,7 @@ def get_all_modal_shares(stats):
     bus_pm = stats["total_bus_meters"] * stats["total_bus_passengers"]
     walk_pm = stats["total_walk_meters"] * stats["total_walkers"]
 
-    total_pm = car_pm + rail_pm + walk_pm
+    total_pm = car_pm + rail_pm + bus_pm + walk_pm
 
     car_share = car_pm / total_pm
     rail_share = rail_pm / total_pm
@@ -447,6 +455,11 @@ common_cities = [
         "inhabitants": 500000
     },
     {
+        "name": "Dublin County 2020",
+        "sim-id": "ae945a7c-5fa7-4312-b9c1-807cb30b3008",
+        "inhabitants": 1400000
+    },
+    {
         "name": "Leuven 2019",
         "sim-id": "95edfe56-f277-44fb-bf23-289c67a8e593",
         "inhabitants": 100000
@@ -545,10 +558,10 @@ def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
 def plot_monte_carlo_convergence():
     db = get_database()
     params = Params()
+    params.car_owner_override = 1
 
     for city in common_cities:
         print("Running for " + city["name"])
-        params.car_owner_override = 0
         params.num_citizens = city["inhabitants"]
 
         __plot_monte_carlo_convergence(db, city["sim-id"], city["name"], params)
@@ -556,7 +569,9 @@ def plot_monte_carlo_convergence():
 
 def plot_congestion_for_set(f_map, congestion_set, nodes):
     # Define a color scale
-    linear = cm.LinearColormap(colors=plt.cm.inferno.colors, index=[0, 1], vmin=0, vmax=1)
+    # linear = cm.LinearColormap(colors=plt.cm.inferno.colors, index=[0, 1], vmin=0, vmax=1)
+
+    inferno = plt.cm.get_cmap('inferno')
 
     for (origin, destination), speed_factor in congestion_set.items():
         origin_node = nodes[origin]["node"]
@@ -565,15 +580,16 @@ def plot_congestion_for_set(f_map, congestion_set, nodes):
         origin_point = (origin_node["y"], origin_node["x"])
         destination_point = (destination_node["y"], destination_node["x"])
 
-        folium.PolyLine([origin_point, destination_point], color=linear(1 - speed_factor),
+        col = inferno(1 - speed_factor)
+        col_hex = matplotlib.colors.rgb2hex(col)
+        folium.PolyLine([origin_point, destination_point], color=col_hex,
                         opacity=1 - speed_factor).add_to(f_map)
-
-    linear.add_to(f_map)
 
     return f_map
 
 
 def plot_congestion_for_sim(f_map, sim_id, params=None):
+
     db = get_database()
 
     if params is None:
@@ -581,9 +597,22 @@ def plot_congestion_for_sim(f_map, sim_id, params=None):
 
     params.vehicle_factor = 0.001  # high vehicle factor to see congestion
 
-    data = run_congestion_simulation(db, sim_id, params)
-    congestion_set = data["congestion_set"]
-    edges = data["edges"]
+    db = get_database()
+
+    num_results = db["route-results"].count_documents({"sim-id": sim_id})
+
+    vehicles_per_journey = params.vehicle_factor * params.num_citizens / num_results
+    print(f"Vehicles per journey: {vehicles_per_journey}")
+
+    journeys = list(congestion.find_all_journeys(db, sim_id))
+    route_options = congestion.find_matching_route_options(db, sim_id, journeys)
+
+    mask = [vc_extract.would_use_motorized_vehicle(route_option["traveller"]) for route_option in route_options]
+
+    edges = congestion.get_edges(db, sim_id, journeys)
+
+    congestion_set = congestion.get_congestion_set(journeys, edges, mask, vehicles_per_journey)
+    # data = run_congestion_simulation(db, sim_id, params)
 
     nodes = congestion.get_nodes(db, sim_id, edges)
 
@@ -591,9 +620,12 @@ def plot_congestion_for_sim(f_map, sim_id, params=None):
 
 
 def plot_paris_congestion():
+    image_name = "paris_congestion.png"
+    html_file = "paris_congestion.html"
+
     city = common_cities[0]
 
-    map_f = folium.Map(location=[48.857003, 2.3492646], zoom_start=13, tiles='CartoDB dark_matter')
+    map_f = folium.Map(location=[48.857003, 2.3492646], zoom_start=13, tiles='CartoDB dark_matter', zoom_control=False)
 
     params = Params()
     params.num_citizens = city["inhabitants"]
@@ -601,8 +633,19 @@ def plot_paris_congestion():
 
     plot_congestion_for_sim(map_f, city["sim-id"], params)
 
-    map_f.save("paris_congestion.html")
+    map_f.save(html_file)
 
+    abs_path = "file:///" + os.path.abspath(html_file)
+
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless")
+
+    driver = webdriver.Chrome(options=options)
+    driver.set_window_size(1920, 1080)
+
+    driver.get(abs_path)
+    time.sleep(0.2)
+    driver.save_screenshot(image_name)
 
 
 # use random.systemrandom() instead of random.random() for better randomness
@@ -611,5 +654,5 @@ if __name__ == "__main__":
     # plot_congestion_for_sim("0ee97ddf-333e-4f62-b3de-8d7f52459065")
 
     # run_modal_share_for_some_cities()
-    # plot_monte_carlo_convergence()
-    plot_paris_congestion()
+    plot_monte_carlo_convergence()
+    # plot_paris_congestion()

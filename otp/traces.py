@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 
 import folium
@@ -12,11 +13,13 @@ def get_time(timestamp):
     return datetime.utcfromtimestamp(timestamp / 1000)
 
 
-def add_traces_to_map(map_f, traces, max_users=1000):
+def add_traces_to_map(map_f, traces, max_points_per_trace=None):
+    warnings.filterwarnings('ignore', 'If necessary, trajectories will be down-sampled', UserWarning)
     for trace in traces:
         tdf = trace["tdf"]
         color = trace["color"]
-        map_f = tdf.plot_trajectory(map_f=map_f, max_points=None, start_end_markers=False, max_users=max_users,
+        map_f = tdf.plot_trajectory(map_f=map_f, start_end_markers=False, max_users=1,
+                                    max_points=max_points_per_trace,
                                     hex_color=color)
 
     return map_f
@@ -93,7 +96,7 @@ def get_simulation_traces(db, sim_id, max_traces=None):
     return extract_traces(results, max_traces)
 
 
-def extract_traces(route_results, max_traces=None):
+def extract_traces(route_results, max_traces=None, selection=None):
     traces = []
 
     color_map = {
@@ -103,12 +106,19 @@ def extract_traces(route_results, max_traces=None):
         "rail": "#F7F4D3"
     }
 
-    for result in route_results:
+    for i, result in enumerate(route_results):
+        selected_option = None
+        if selection is not None:
+            selected_option = selection[i]
+
         for option in result["options"]:
             if option is None:
                 continue
 
             option_id = option["route-option-id"]
+
+            if selected_option is not None and option_id != selected_option:
+                continue
 
             for itinerary in option["itineraries"]:
                 line = []

@@ -2,58 +2,89 @@ import os.path
 import time
 
 import folium
+import pandas
+from skmob.preprocessing import compression
 
 import traces
 from mongo.mongo import get_database
-from selenium import webdriver
 
-sim_id = "0ee97ddf-333e-4f62-b3de-8d7f52459065"
+import congestion
+import modal_shares
+from origin_destination.od.place import Place
+from visualization.plot.map import CityPlotter
 
-html_file = "./test.html"
-abs_path = "file:///" + os.path.abspath(html_file)
 
-db = get_database()
+def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, tall_city=False, fps=30, duration=30,
+                   max_points_per_trace=100):
+    db = get_database()
 
-route_results = db["route-results"]
+    results = list(congestion.find_all_journeys(db, sim_id))
 
-results = route_results.find({"sim-id": sim_id})
+    selection = [None] * len(results)
 
-print("Extracting traces...")
-all_to_plot = traces.extract_traces(results)
+    if only_use_selected:
+        result_options = congestion.find_matching_route_options(db, sim_id, results)
 
-# heatmap_data = traces.get_trace_heatmap_data(to_plot)
-# map_f = traces.add_heatmap_to_map(map_f, heatmap_data)
+        modal_shares.get_modal_share(result_options, out_selection=selection)
 
-print("Plotting traces...")
+    print("Extracting traces...")
+    all_to_plot = traces.extract_traces(results, selection=selection)
 
-options = webdriver.ChromeOptions()
-options.add_argument("--headless")
+    print("Decimating traces...")
+    # tdf = compression.compress(tdf, spatial_radius_km=spatial_radius)
 
-driver = webdriver.Chrome(options=options)
-driver.set_window_size(1920, 1080)
+    # heatmap_data = traces.get_trace_heatmap_data(to_plot)
+    # map_f = traces.add_heatmap_to_map(map_f, heatmap_data)
 
-fps = 30
-total_duration = 30  # seconds
-total_frames = fps * total_duration
+    print("Plotting traces...")
 
-num_to_plot = 1
-num_step = int(len(all_to_plot) / total_frames)
+    total_frames = fps * duration
 
-for i in range(total_frames):
-    print(f"Frame {i} of {total_frames}")
+    num_to_plot = 1
+    num_step = int(len(all_to_plot) / total_frames)
 
-    to_plot = all_to_plot[:num_to_plot]
+    place = Place(place_name)
 
-    map_f = folium.Map(location=[48.857003, 2.3492646], zoom_start=13, tiles='CartoDB dark_matter')
+    plotter = CityPlotter(place, zoom=zoom_level)
+    webdriver = plotter.setup_webdriver()
 
-    map_f = traces.add_traces_to_map(map_f, to_plot, max_users=1000)
+    for i in range(total_frames):
+        print(f"Frame {i} of {total_frames}")
+
+        to_plot = all_to_plot[:num_to_plot]
+
+        plotter.get_map(zoom=zoom_level, dark=True)
+
+        plotter.map = traces.add_traces_to_map(plotter.map, to_plot,
+                                               max_points_per_trace=max_points_per_trace)
+
+        plotter.export_to_png(folder="animation", filename=sim_id + "-frame-" + str(i) + ".png", tall_city=tall_city,
+                              webdriver=webdriver)
+
+        num_to_plot += num_step
+
+
+def plot_all(sim_id):
+    html_file = "./test.html"
+
+    db = get_database()
+
+    route_results = db["route-results"]
+
+    results = route_results.find({"sim-id": sim_id})
+
+    print("Extracting traces...")
+    all_to_plot = traces.extract_traces(results)
+
+    map_f = folium.Map(location=[53.3477994, -6.2610677], zoom_start=11, tiles='CartoDB dark_matter')
+
+    map_f = traces.add_traces_to_map(map_f, all_to_plot, max_users=1000)
 
     map_f.save(html_file)
 
-    driver.get(abs_path)
-    time.sleep(0.2)
-    driver.save_screenshot("otp/output/" + sim_id + "-frame-" + str(i) + ".png")
 
-    num_to_plot += num_step
-
-
+if __name__ == "__main__":
+    plot_animation("ae945a7c-5fa7-4312-b9c1-807cb30b3008", "Dublin Region, Ireland", zoom_level=11,
+                   only_use_selected=True,
+                   fps=30, duration=10, tall_city=True)
+    #  plot_all("ae945a7c-5fa7-4312-b9c1-807cb30b3008")

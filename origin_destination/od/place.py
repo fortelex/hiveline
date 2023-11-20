@@ -310,7 +310,11 @@ class Place():
         for i, tile in regions.iterrows():
             # check if it intersects before computing the intersection area (otherwise there is a warning)
             intersect = place_regions.intersects(tile['geometry'])
-            best_matching_index = place_regions[intersect].intersection(tile['geometry']).to_crs(epsg=6933).area.argmax()
+            best_matching_index = place_regions[intersect].intersection(tile['geometry']).to_crs(epsg=6933).area
+            if best_matching_index.empty:
+                best_matching_index = 0
+            else:
+                best_matching_index = best_matching_index.argmax()
             regions.loc[i, 'nuts3'] = place_regions.iloc[best_matching_index]['id']
 
         return regions

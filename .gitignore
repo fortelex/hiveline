@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# images (onedrive)
+visualization/images/
 # C extensions
 *.so
 

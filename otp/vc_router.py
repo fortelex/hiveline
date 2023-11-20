@@ -29,6 +29,20 @@ def __reset_jobs(db, sim_id):
                      {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
 
 
+def __reset_failed_jobs(db, sim_id):
+    """
+    Reset all jobs for the given simulation to pending.
+    :param db: the database
+    :return:
+    """
+
+    print("Resetting failed jobs for simulation {}".format(sim_id))
+
+    coll = db["route-calculation-jobs"]
+    coll.update_many({"sim-id": sim_id, "status": "failed"},
+                     {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
+
+
 def __create_route_calculation_jobs(db, sim_id):
     """
     Create route calculation jobs for all virtual commuters of a given simulation that do not have a job yet.
@@ -416,7 +430,7 @@ def __wait_for_line(process, line_to_wait_for):
 
 
 def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4, num_threads=4,
-        reset_jobs=False, api_timeout=20):
+        reset_jobs=False, reset_failed=False, api_timeout=20):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
@@ -427,6 +441,7 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     :param server_memory: The amount of memory to use for the OTP server
     :param num_threads: The number of threads to use for sending route requests to the server
     :param reset_jobs: Whether to reset all jobs to pending or not
+    :param reset_failed: Whether to reset all failed jobs to pending or not
     :param api_timeout: The timeout for the OTP server
     :return:
     """
@@ -434,6 +449,9 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
 
     if reset_jobs:
         __reset_jobs(db, sim_id)
+
+    if reset_failed and not reset_jobs:
+        __reset_failed_jobs(db, sim_id)
 
     __create_route_calculation_jobs(db, sim_id)
     __reset_timed_out_jobs(db)
@@ -504,10 +522,12 @@ if __name__ == "__main__":
                                                                                        'for sending route requests to the server')
     parser.add_argument('--reset-jobs', dest='reset_jobs', action='store_true', help='Whether to reset all jobs for '
                                                                                      'this simulation')
+    parser.add_argument('--reset-failed', dest='reset_failed', action='store_true', help='Whether to reset all failed '
+                                                                                      'jobs for this simulation')
     parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=20, help='The timeout for the OTP server (in seconds)')
 
     args = parser.parse_args()
 
     run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory,
         args.num_threads,
-        args.reset_jobs, args.api_timeout)
+        args.reset_jobs, args.reset_failed, args.api_timeout)

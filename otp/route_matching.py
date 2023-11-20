@@ -9,6 +9,7 @@ import pymongo.errors
 
 import historical_osmnx
 from mongo.mongo import get_database
+from selenium import webdriver
 
 
 def __create_matching_jobs(db, sim_id):
@@ -39,8 +40,12 @@ def __create_matching_jobs(db, sim_id):
         },
         {
             "$match": {
-                "matching-jobs": {
-                    "$size": 0
+                "matched_docs": {
+                    "$not": {
+                        "$elemMatch": {
+                            "sim-id": sim_id
+                        }
+                    }
                 }
             }
         },
@@ -461,9 +466,11 @@ def run_matching(sim_id, place_name=None, num_threads=4, reset_jobs=False, recal
     __spawn_job_pull_threads(db, sim_id, graph, num_threads=num_threads)
     print("Matching algorithm finished in {:.2f} seconds".format(time.time() - t))
 
-    print("Dumping used edge metadata")
+    print("Dumping used node and edge metadata")
     t = time.time()
     edge_set = __get_edge_set(db, sim_id)
+
+    __dump_used_node_metadata(db, sim_id, edge_set, graph)
     __dump_used_edge_metadata(db, sim_id, edge_set, graph)
     print("Dumping finished in {:.2f} seconds".format(time.time() - t))
 

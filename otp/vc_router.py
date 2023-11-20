@@ -177,8 +177,8 @@ def __route_virtual_commuter(vc, sim, uses_delays, client_timeout=40):
     """
     mode_combinations = [["WALK", "TRANSIT"]]
 
-    if vc_extract.has_motor_vehicle(vc):
-        mode_combinations += [["WALK", "CAR"]]
+    #  if vc_extract.has_motor_vehicle(vc):
+    mode_combinations += [["WALK", "CAR"]]
 
     options = [__get_route_option(vc, sim, uses_delays, modes, client_timeout) for modes in mode_combinations]
     options = [option for option in options if option is not None]

@@ -8,7 +8,7 @@ def extract_frame_number(filename):
     return int(match.group(1)) if match else 0
 
 # Define the path to the images
-image_folder = 'otp/output'
+image_folder = 'visualization/animation'
 video_name = 'output_video.avi'
 
 # Fetch all .png files and sort them by the frame number

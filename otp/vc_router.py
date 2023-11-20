@@ -398,7 +398,7 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1, client_timeout=40
 
             consecutive_error_number += 1
 
-            if consecutive_error_number >= 5:
+            if consecutive_error_number >= 20:
                 print("Too many consecutive errors, stopping")
                 break
 

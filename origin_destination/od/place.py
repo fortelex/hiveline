@@ -354,7 +354,7 @@ class Place():
             # add city boundaries
             self.shape.boundary.plot(ax=ax)
             # add column data
-            self.data.plot(ax=ax, column=c)
+            self.data.plot(ax=ax, column=c, colormap='magma')
             ax.set_title(c)
             ax.set_axis_off()
 

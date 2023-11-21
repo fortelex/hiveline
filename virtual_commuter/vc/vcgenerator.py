@@ -252,12 +252,13 @@ class VirtualCommuterGenerator():
         return weighted_vehicle_proba
 
 
-    def generate_vehicle(self, age, vehicle_type, origin_tile):
+    def generate_vehicle(self, age, vehicle_type, origin_tile, use_parking):
         '''
         Chose if a vc owns a vehicle of a given type
         Args:
             age (str): the age category
             vehicle_type (str): the vehicle category
+            use_parking (bool): if true, takes the home parking probability to weight the vehicle ownership localy (per tile)
         Returns:
             (int or None): the count of vehicle of that category
         '''
@@ -265,9 +266,10 @@ class VirtualCommuterGenerator():
         if age == 'under_20':
             return None
         vehicle_proba = self.get_demo_stat(self.region, prefix+vehicle_type).item()
-        # weight probability by parking
-        if vehicle_type in ['car', 'moto']:
-            vehicle_proba = self.vehicle_proba_with_parking(vehicle_type, vehicle_proba, origin_tile)
+        if use_parking:
+            # weight probability by parking if wanted
+            if vehicle_type in ['car', 'moto']:
+                vehicle_proba = self.vehicle_proba_with_parking(vehicle_type, vehicle_proba, origin_tile)
         # can have multiple cars
         if vehicle_proba > 1:
             # not perfect, for now more than 2 cars (rare for an average) is giving a random int between 2 and ceil(vehicle_proba) with equal proba
@@ -282,13 +284,14 @@ class VirtualCommuterGenerator():
             value = 1 if rand() < vehicle_proba else None
         return value
     
-    def generate_vehicle_usage(self, vehicles, distance_to_work, dest_tile):
+    def generate_vehicle_usage(self, vehicles, distance_to_work, dest_tile, use_parking):
         '''
         Chose if a vs use a vehicle to go to work
         Args:
             vehicles (dict): the owned vehicles
             distance_to_work (float): the distance between origin and destnation, in m
             dest_tile (int): the id to the destination tile
+            use_parking (bool): if true, takes the work parking probability to weight the vehicle usage
         Returns:
             (dict): the same dict with an additional field: 'usage'
         '''
@@ -297,7 +300,10 @@ class VirtualCommuterGenerator():
         for v in ['car', 'moto']:
             if vehicles[v]:
                 if distance_to_work > min_distance_to_take_car:
-                    parking_proba = self.get_tile_data(dest_tile, 'parking_destination_'+v).item()
+                    if use_parking:
+                        parking_proba = self.get_tile_data(dest_tile, 'parking_destination_'+v).item()
+                    else:
+                        parking_proba = 0.9
                     if rand() < parking_proba:
                         usage = v
         # high proba to use a utility vehicle
@@ -308,11 +314,12 @@ class VirtualCommuterGenerator():
         return vehicles
 
     
-    def generate_commuter(self, sim_id):
+    def generate_commuter(self, sim_id, use_parking=True):
         '''
         Generate a virtual commuter according to the city demographic and zoning information
         Args:
             sim_id (str): the simulation id containing the vc
+            parking (bool): whether or not to take work parking probability into consideration for car usage, and home parking for vehicle ownership
         Returns:
             (VirtualCommuter): the random vc
         '''
@@ -325,8 +332,8 @@ class VirtualCommuterGenerator():
             employment_type = self.generate_variable('employment_type')
         destination_tile, destination = self.generate_destination(age, employment_type)
         od_distance = distance(origin, destination)
-        vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type, origin_tile) for vehicle_type in ['car', 'moto', 'utilities'] }
-        vehicles = self.generate_vehicle_usage(vehicles, od_distance, destination_tile)
+        vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type, origin_tile, use_parking) for vehicle_type in ['car', 'moto', 'utilities'] }
+        vehicles = self.generate_vehicle_usage(vehicles, od_distance, destination_tile, use_parking)
 
         vc = VirtualCommuter(sim_id, origin_tile, origin, destination_tile, destination, self.region, age, employed, employment_type, vehicles)
         self.region = None

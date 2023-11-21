@@ -1,6 +1,6 @@
 # HiveLine
 
-HiveLine is a traffic simulation based on open data from European cities. It is a project for
+HiveLine is an agent-based simulation tool for the purpose of urban mobility analysis which uses open data from European cities. It is a project developed in response to
 the [UPPER Challenge](https://labs.mobidatalab.eu/challenge-details/?id=123)
 which is part of the [2023 Codagon](https://labs.mobidatalab.eu/living-lab-details/?id=90) hosted
 by [MobiDataLab](https://mobidatalab.eu/).

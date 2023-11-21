@@ -30,7 +30,8 @@ class Params:
     vcs_car_usage_start = 0.5
     mix_factor = 0.1
     max_iterations = 100
-    car_owner_override = 0  # probability that a car owner will choose a car even though there is not parking
+    car_ownership_override = 0  # probability that a vc will own a car even though they don't have one. all of these would use it as well.
+    car_usage_override = 0  # probability that a car owner would choose a car even though there is no parking
 
     congestion_options = congestion.CongestionOptions()
 
@@ -97,7 +98,11 @@ def get_modal_share(route_options, mask=None, delay_set=None, out_selection=None
 
         has_car = vc_extract.has_motor_vehicle(result["traveller"])  # does the vc have a motorized vehicle?
 
-        if not would_use_car and has_car and random.random() < params.car_owner_override:
+        if not has_car and random.random() < params.car_ownership_override:
+            has_car = True
+            would_use_car = True
+
+        if not would_use_car and has_car and random.random() < params.car_usage_override:
             would_use_car = True
 
         if would_use_car:
@@ -446,7 +451,7 @@ def plot_factors(sim_id, factor_key, factors):
 common_cities = [
     {
         "name": "Paris 2019",
-        "sim-id": "20dc997d-5e66-4d7c-a8f7-b50ca9ef0096",
+        "sim-id": "f23a4643-3bfb-44c8-8fa5-9bbd9aae880f",
         "inhabitants": 2000000
     },
     {
@@ -456,7 +461,7 @@ common_cities = [
     },
     {
         "name": "Dublin County 2020",
-        "sim-id": "ae945a7c-5fa7-4312-b9c1-807cb30b3008",
+        "sim-id": "f4153089-2217-4aea-91bd-18917355490e",  # "ae945a7c-5fa7-4312-b9c1-807cb30b3008",
         "inhabitants": 1400000
     },
     {
@@ -473,20 +478,20 @@ def run_modal_share_for_some_cities():
 
     for city in common_cities:
         print("Running for " + city["name"])
-        params.car_owner_override = 0
+        params.car_usage_override = 1
         params.num_citizens = city["inhabitants"]
         stats = run_decisions(db, city["sim-id"], params)
         push_stats_to_db(db, city["sim-id"], stats, {
             "name": city["name"],
             "inhabitants": city["inhabitants"],
-            "car_owner_override": params.car_owner_override,
-            "method": "no-congestion,leg-based counts"
+            "car_owner_override": params.car_usage_override,
+            "method": "no-congestion,leg-based counts,car usage override"
         })
 
 
 def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
     """
-    Run decision algorithm without congestion simulation on multiple subsets of the data an plot convergence
+    Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
     :param db: the database
     :param sim_id: the simulation id
     :param city_name: the city name to add to the plot
@@ -544,7 +549,7 @@ def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
 
     plt.tick_params(axis='both', which='major', labelsize=20, length=10, width=4)
     plt.xlabel("Number of virtual commuters", fontsize=24)
-    plt.ylabel("Transit modal share", fontsize=24)
+    plt.ylabel("Modal share", fontsize=24)
     if city_name is not None:
         plt.title(city_name, fontsize=26)
     plt.legend(fontsize=24, facecolor=background_color, edgecolor=background_color)
@@ -558,13 +563,80 @@ def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
 def plot_monte_carlo_convergence():
     db = get_database()
     params = Params()
-    params.car_owner_override = 1
+    params.car_usage_override = 0
 
     for city in common_cities:
         print("Running for " + city["name"])
         params.num_citizens = city["inhabitants"]
 
         __plot_monte_carlo_convergence(db, city["sim-id"], city["name"], params)
+
+
+def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
+    """
+    Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
+    :param db: the database
+    :param sim_id: the simulation id
+    :param city_name: the city name to add to the plot
+    :param params: the parameters
+    :return:
+    """
+    if params is None:
+        params = Params()
+
+    background_color = "#030A13"
+
+    route_options = db["route-options"]
+
+    results = list(route_options.find({"sim-id": sim_id}))
+
+    num_to_plot = 1
+    num_steps = 100
+
+    num_to_plot_add = int(len(results) / num_steps)
+
+    modal_shares = []
+    vc_count = []
+
+    for i in range(num_steps):
+        print("Running for " + str(num_to_plot) + " results")
+        stats, _ = get_modal_share(results[:num_to_plot], params=params)
+        modal_share = get_transit_modal_share(stats)
+        modal_shares.append(modal_share)
+        vc_count.append(num_to_plot)
+        num_to_plot += num_to_plot_add
+
+    # plot all to same graph
+
+    plt.style.use('dark_background')
+
+    plt.figure(figsize=(19.2, 10.8))
+
+    plt.plot(vc_count, modal_shares, linewidth=4, color="#D280CE")
+
+    plt.tick_params(axis='both', which='major', labelsize=20, length=10, width=4)
+    plt.xlabel("Number of virtual commuters", fontsize=24)
+    plt.ylabel("Transit modal share", fontsize=24)
+    if city_name is not None:
+        plt.title(city_name, fontsize=26)
+    plt.legend(fontsize=24, facecolor=background_color, edgecolor=background_color)
+    plt.gca().set_facecolor(background_color)
+    plt.gcf().set_facecolor(background_color)
+    plt.savefig("transit_modal_shares_" + city_name.lower().replace(" ", "") + "_1920x1080.png", dpi=100,
+                facecolor=plt.gcf().get_facecolor())
+    plt.show()
+
+
+def plot_transit_monte_carlo_convergence():
+    db = get_database()
+    params = Params()
+    params.car_usage_override = 0
+
+    for city in common_cities:
+        print("Running for " + city["name"])
+        params.num_citizens = city["inhabitants"]
+
+        __plot_transit_monte_carlo_convergence(db, city["sim-id"], city["name"], params)
 
 
 def plot_congestion_for_set(f_map, congestion_set, nodes):
@@ -589,7 +661,6 @@ def plot_congestion_for_set(f_map, congestion_set, nodes):
 
 
 def plot_congestion_for_sim(f_map, sim_id, params=None):
-
     db = get_database()
 
     if params is None:
@@ -629,7 +700,7 @@ def plot_paris_congestion():
 
     params = Params()
     params.num_citizens = city["inhabitants"]
-    params.car_owner_override = 0
+    params.car_usage_override = 0
 
     plot_congestion_for_sim(map_f, city["sim-id"], params)
 
@@ -648,11 +719,91 @@ def plot_paris_congestion():
     driver.save_screenshot(image_name)
 
 
-# use random.systemrandom() instead of random.random() for better randomness
+def analyze_waling_distances(city):
+    sim_id = city["sim-id"]
+    city_name = city["name"]
+
+    db = get_database()
+    params = Params()
+
+    params.num_citizens = city["inhabitants"]
+
+    journeys = list(db["route-options"].find({"sim-id": sim_id}))
+
+    choices = [None] * len(journeys)
+
+    get_modal_share(journeys, out_selection=choices, params=params)
+    walk_distances = []
+
+    for (i, journey) in enumerate(journeys):
+        choice = choices[i]
+
+        if choice is None:
+            continue
+
+        has_car = vc_extract.has_motor_vehicle(journey["traveller"])  # does the vc have a motorized vehicle?
+
+        if has_car:
+            continue
+
+        for option in journey["options"]:
+            option_id = option["route-option-id"]
+            if option_id != choice:
+                continue
+
+            walk_distance = 0
+
+            for leg in option["modes"]:
+                if leg["mode"] == "walk":
+                    walk_distance += leg["distance"]
+
+            walk_distances.append(walk_distance)
+
+    # plot histogram of walk distances
+    plt.hist(walk_distances, bins=100)
+    plt.title("Walk distances for " + city_name)
+    plt.xlabel("Walk distance (m)")
+    plt.ylabel("Number of journeys")
+    plt.show()
+
+
+def temp_dublin_calibration():
+    # run modal share for dublin county
+    db = get_database()
+    params = Params()
+
+    city = common_cities[2]
+
+    params.num_citizens = city["inhabitants"]
+
+    print("Running for " + city["name"])
+
+    params.car_usage_override = 0
+    params.car_ownership_override = 0.3 # 0.41
+
+    params.num_citizens = city["inhabitants"]
+    stats = run_decisions(db, city["sim-id"], params)
+
+    transit_modal_share = get_transit_modal_share(stats)
+
+    print(transit_modal_share)
+
+    modal_shares = get_all_modal_shares(stats)
+    print(modal_shares)
+
+
+# todo use random.systemrandom() instead of random.random() for better randomness
 if __name__ == "__main__":
     # plot_vehicle_factors("735a3098-8a19-4252-9ca8-9372891e90b3")
     # plot_congestion_for_sim("0ee97ddf-333e-4f62-b3de-8d7f52459065")
 
     # run_modal_share_for_some_cities()
-    plot_monte_carlo_convergence()
+    # plot_monte_carlo_convergence()
+    # plot_transit_monte_carlo_convergence()
     # plot_paris_congestion()
+    # analyze_waling_distances(common_cities[2])
+    plot_monte_carlo_convergence()
+    # plot_transit_monte_carlo_convergence()
+
+
+

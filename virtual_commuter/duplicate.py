@@ -52,7 +52,6 @@ def duplicate_simulation(db, sim_id, new_sim_id=None, new_date=None, copy_vc=Tru
 if __name__ == "__main__":
     database = get_database()
 
-    #date = datetime.datetime(2021, 6, 7, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    #duplicate_simulation(database, "735a3098-8a19-4252-9ca8-9372891e90b3", new_date=date, copy_vc=True)
-
-    __copy_virtual_commuters(database, "735a3098-8a19-4252-9ca8-9372891e90b3", "6f31178c-dfb5-4d25-8447-8b7c2d90d75d")
+    date = datetime.datetime(2019, 10, 8, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    sid = duplicate_simulation(database, "16d35b4b-eee3-44c0-a9b4-e3639d83f10a", new_date=date, copy_vc=True)
+    print(sid)

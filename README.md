@@ -26,7 +26,7 @@ and zoning data from [OSM](https://www.openstreetmap.org/). All data is converte
 ### Virtual Commuter Generation
 
 The next step is to create virtual commuters. A virtual commuter represents a single person that commutes from one
-location to another. The virtual commuters are generated based on the OD-Matrix. Each virtual commuter gets assigned
+location to another. The virtual commuters are generated based on the hex grids. Each virtual commuter gets assigned
 home and work locations (lon, lat), as well as modes of transport, employment type, etc. These attributes are selected
 randomly and the probabilities are based on the hexagon data. For example, if a hexagon has a high population density,
 the probability of a virtual commuter living in that hexagon is higher than in a hexagon with a low population density.

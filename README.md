@@ -1,7 +1,7 @@
 # HiveLine
 
 HiveLine is a traffic simulation based on open data from European cities. It is a project for
-the [Upper Challenge](https://labs.mobidatalab.eu/challenge-details/?id=123)
+the [UPPER Challenge](https://labs.mobidatalab.eu/challenge-details/?id=123)
 which is part of the [2023 Codagon](https://labs.mobidatalab.eu/living-lab-details/?id=90) hosted
 by [MobiDataLab](https://mobidatalab.eu/).
 The target was to find an objective way of calculating modal shares across European cities using open data.
@@ -45,23 +45,32 @@ commuter. For example, if a virtual commuter has a car, we are routing using the
 
 The last step is to calculate the modal share. Using the generated routes, we can approximate the choice of transport
 mode for each virtual commuter. We can for example use the route that takes the least amount of time. We can then
-calculate the transit modal share of motorized travel as
+calculate modal shares like this:
+
+```python
+mode_share = mode_passenger_meters / total_passenger_meters
+```
+
+![Paris Modal Share](docs/img/paris_modal_shares.png)
+
+We can also calculate the transit modal share of motorized travel (as defined in
+the [UPPER Challenge](https://labs.mobidatalab.eu/challenge-details/?id=123)) as
 
 ```python
 transit_modal_share = transit_passenger_meters / motorized_passenger_meters
 ```
 
-![Paris Modal Share](docs/img/paris_modal_share.png)
+![Paris Modal Share](docs/img/paris_transit_modal_share.png)
 
 Note, that these numbers are an approximation based on many assumptions, that still need further testing.
-
 
 ## Extensions
 
 ### Public Transport Delays
 
-We can extend the simulation to include public transport delays. We can use the [Public Transport Statistics](https://github.com/traines-source/public-transport-statistics)
-dataset to simulate delays based on historical delay histograms. We can even incorporate this model into the routing 
+We can extend the simulation to include public transport delays. We can use
+the [Public Transport Statistics](https://github.com/traines-source/public-transport-statistics)
+dataset to simulate delays based on historical delay histograms. We can even incorporate this model into the routing
 step, so that if a virtual commuter can't catch a train due to a delay or cancellation, the route is recalculated.
 
 Example of a delay histogram for German regional public transport:
@@ -71,7 +80,7 @@ Example of a delay histogram for German regional public transport:
 
 Another feature of our simulation is that we can estimate congestion based on the routes each car virtual commuter
 takes. The idea is to extract which parts of roads are used often by car routes. We can then use this information to
-estimate congestion. This can be combined with the modal share calculation to get a more accurate model, as the decision 
+estimate congestion. This can be combined with the modal share calculation to get a more accurate model, as the decision
 we make in the modal share calculation part affects which routes are used by cars and the congestion simulation affects
 delays and therefore the decisions. Iterating this loop a few times leads to a converging model.
 

@@ -104,5 +104,6 @@ class CityPlotter():
         webdriver.get("file:///" + filepath + '.html')
         time.sleep(0.2)
         webdriver.save_screenshot(filepath + '.png')
+        webdriver.close()
         if os.path.exists(filepath_html):
             os.remove(filepath_html)

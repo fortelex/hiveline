@@ -3,6 +3,7 @@ import time
 
 import folium
 import pandas
+from selenium import webdriver
 from skmob.preprocessing import compression
 
 import traces
@@ -65,22 +66,22 @@ def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, t
 
 
 def plot_all(sim_id):
-    html_file = "./test.html"
-
     db = get_database()
 
     route_results = db["route-results"]
+
+    place = Place("Paris, France")
 
     results = route_results.find({"sim-id": sim_id})
 
     print("Extracting traces...")
     all_to_plot = traces.extract_traces(results)
 
-    map_f = folium.Map(location=[53.3477994, -6.2610677], zoom_start=11, tiles='CartoDB dark_matter')
+    plotter = CityPlotter(place, zoom=13)
 
-    map_f = traces.add_traces_to_map(map_f, all_to_plot, max_users=1000)
+    plotter.map = traces.add_traces_to_map(plotter.map, all_to_plot)
 
-    map_f.save(html_file)
+    plotter.export_to_png(filename="test.png")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ The target was to find an objective way of calculating modal shares across Europ
 Our solution integrates various datasets, for example [OSM](https://www.openstreetmap.org/)
 data, [Eurostat](https://ec.europa.eu/eurostat/), etc.
 to create a traffic simulation. Our current version is focussed on commuter modal shares, but can be extended to other
-use cases as well. It is an agent-based monte-carlo simulation, which is able to simulate the movement of
+use cases as well. It is a data-driven agent-based simulation, which is able to simulate the movement of
 individuals across a city.
 
 ## Methodology

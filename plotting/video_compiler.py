@@ -8,7 +8,7 @@ def extract_frame_number(filename):
     return int(match.group(1)) if match else 0
 
 # Define the path to the images
-image_folder = 'visualization/animation'
+image_folder = 'plotting/animation'
 video_name = 'output_video.avi'
 
 # Fetch all .png files and sort them by the frame number
@@ -21,7 +21,7 @@ height, width, layers = frame.shape
 
 # Define the codec and create VideoWriter object
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-fps = 30  # Change FPS as needed
+fps = 10  # Change FPS as needed
 video = cv2.VideoWriter(video_name, fourcc, fps, (width, height))
 
 for image in images:

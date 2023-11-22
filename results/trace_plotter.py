@@ -1,16 +1,7 @@
-import os.path
-import time
-
-import folium
-import pandas
-from selenium import webdriver
-from skmob.preprocessing import compression
-
-import traces
+from visualization.plot import traces
 from mongo.mongo import get_database
 
-import congestion
-import modal_shares
+from decision import congestion, modal_shares
 from origin_destination.od.place import Place
 from visualization.plot.map import CityPlotter
 

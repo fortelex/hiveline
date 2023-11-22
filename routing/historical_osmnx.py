@@ -3,6 +3,8 @@ import re
 
 import osmnx as ox
 
+import config
+
 
 def __ensure_directory(dir_path):
     """
@@ -52,11 +54,11 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
                               + "-" + date_str.replace(":", "") \
                               + ("-undirected" if undirected else "")
 
-    __ensure_directory("otp/data/graphs/")
+    __ensure_directory(config.data_path)
 
     print("Normalized dataset name: " + normalized_dataset_name)
 
-    graph_file_location = "otp/data/graphs/" + normalized_dataset_name + ".graphml"
+    graph_file_location = config.data_path + "/" + normalized_dataset_name + ".graphml"
 
     print("Graph file location: " + graph_file_location)
 

@@ -1,6 +1,4 @@
 import datetime
-import json
-import math
 import os
 import random
 import time
@@ -15,8 +13,6 @@ from selenium import webdriver
 from mongo.mongo import get_database
 import vc_extract
 import congestion
-
-import branca.colormap as cm
 
 rail_modes = ["rail", "tram", "subway"]
 

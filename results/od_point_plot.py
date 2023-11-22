@@ -1,13 +1,12 @@
 import os.path
-import time
 
 import folium
 
-import traces
 from mongo.mongo import get_database
-from selenium import webdriver
 
-import vc_extract
+from virtual_commuter import vc_extract
+
+# todo: move to results and use CityPlotter
 
 sim_id = "3e173b8e-cb94-4c0d-aa07-4992f0929f95"
 

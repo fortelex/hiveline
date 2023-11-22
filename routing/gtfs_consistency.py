@@ -4,6 +4,8 @@ import shutil
 import pandas as pd
 import zipfile
 
+import config
+
 
 def unzip_gtfs(zip_path, unzip_path):
     """
@@ -126,7 +128,7 @@ def fix_gtfs(gtfs_path):
     :param gtfs_path: The path to the GTFS zip file
     :return:
     """
-    temp_dir = "otp/data/temp"
+    temp_dir = config.data_path + "/temp"
 
     print("Fixing GTFS: " + gtfs_path)
 

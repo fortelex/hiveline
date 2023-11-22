@@ -6,6 +6,7 @@ import pandas as pd
 import pymongo.errors
 
 from mongo import mongo
+import config
 
 
 def read_and_upload_statistics(directory):
@@ -64,4 +65,4 @@ def read_and_upload_statistics(directory):
             coll.replace_one({"name": normalized_name}, doc)
 
 
-read_and_upload_statistics("./otp/delay_statistics/")
+read_and_upload_statistics(config.delay_path)

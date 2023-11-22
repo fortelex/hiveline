@@ -41,7 +41,7 @@ http://localhost:8080/graphiql
 ## Usage
 
 ```python
-import otp.otp
+from routing import otp
 
 otp.get_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00",
                       ["WALK", "TRANSIT"])
@@ -58,13 +58,15 @@ You can simulate delays using delay histograms. You can find delay statistics on
 - Select Inspect - Data
 - Click on download data
 
+We plan to automate this process in the future.
+
 ### Pushing to database
 
 You can push the data to the database using the `otp_reader.py` script. See [here](../mongo/readme.md) to set up the database.
 
-- Put the csv file in the `otp/delay_statistics` folder. Rename it to either the operator name that is used in the GTFS file
+- Put the csv file in the `routing/delay_statistics` folder. Rename it to either the operator name that is used in the GTFS file
   or the [special key](#special-key-average) "average.csv".
-- Run `python otp/otp_reader.py`
+- Run `python routing/otp_reader.py`
 
 Now the data is in the database (collection `delay_statistics`) and ready to use in the OTP interface.
 
@@ -81,7 +83,7 @@ And name it "average.csv" before running `otp_reader.py`.
 ### Usage
 
 ```python
-import otp.otp
+from routing import otp
 
 otp.get_delayed_route(54.3234385, 10.1225511, 54.7907318, 9.4397184, "2023-11-20", "11:00",
                       ["WALK", "TRANSIT"])

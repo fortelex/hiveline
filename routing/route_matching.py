@@ -9,7 +9,6 @@ import pymongo.errors
 
 import historical_osmnx
 from mongo.mongo import get_database
-from selenium import webdriver
 
 
 def __create_matching_jobs(db, sim_id):

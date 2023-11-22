@@ -10,9 +10,13 @@ import bson
 
 import gtfs_consistency
 from mongo.mongo import get_database
+import config
 
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"
+
+if config.bin_path.endswith("/"):
+    config.bin_path = config.bin_path[:-1]
 
 
 def __ensure_directory(path):
@@ -30,13 +34,13 @@ def __ensure_otp_downloaded():
     Ensures that the OTP jar file is downloaded.
     :return:
     """
-    __ensure_directory("otp/bin")
+    __ensure_directory(config.bin_path)
 
-    if not os.path.isfile("otp/bin/" + file_name):
+    if not os.path.isfile(config.bin_path + "/" + file_name):
         path = "https://repo1.maven.org/maven2/org/opentripplanner/otp/" + version + "/" + file_name
         print("Downloading " + path)
 
-        urllib.request.urlretrieve(path, "otp/bin/" + file_name)
+        urllib.request.urlretrieve(path, config.bin_path + "/" + file_name)
 
 
 def __ensure_data_directory():
@@ -44,7 +48,7 @@ def __ensure_data_directory():
     Ensures that the data directory exists.
     :return:
     """
-    __ensure_directory("otp/data")
+    __ensure_directory(config.data_path)
 
 
 def __clean_up_graph_file():
@@ -55,17 +59,17 @@ def __clean_up_graph_file():
     """
     __ensure_data_directory()
 
-    if not os.path.isfile("otp/bin/graph.obj"):
+    if not os.path.isfile(config.bin_path + "/graph.obj"):
         return
 
-    if not os.path.isfile("otp/bin/graph-source.json"):
-        os.remove("otp/bin/graph.obj")
+    if not os.path.isfile(config.bin_path + "/graph-source.json"):
+        os.remove(config.bin_path + "/graph.obj")
         return
 
-    with open("otp/bin/graph-source.json", "r") as f:
+    with open(config.bin_path + "/graph-source.json", "r") as f:
         source = json.load(f)["source"]
-        os.rename("otp/bin/graph.obj", "otp/data/" + source + "-graph.obj")
-    os.remove("otp/bin/graph-source.json")
+        os.rename(config.bin_path + "/graph.obj", config.data_path + "/" + source + "-graph.obj")
+    os.remove(config.bin_path + "/graph-source.json")
     print("Cleaned up graph file")
 
 
@@ -112,7 +116,7 @@ def __ensure_data_downloaded(link_object, file_name_extension):
 
     __ensure_data_directory()
 
-    target_file_name = "otp/data/" + link_hash + file_name_extension
+    target_file_name = config.data_path + "/" + link_hash + file_name_extension
     if os.path.isfile(target_file_name):
         return target_file_name
 
@@ -190,7 +194,7 @@ def __use_run_config(api_processing_timeout=20):
         }
     }
 
-    with open("otp/bin/router-config.json", "w") as f:
+    with open(config.bin_path + "/router-config.json", "w") as f:
         json.dump(config, f)
 
 
@@ -218,9 +222,9 @@ def __use_build_config(osm_files, gtfs_files, target_date):
         "transitModelTimeZone": "Europe/Berlin",
     }
 
-    __ensure_directory("otp/bin")
+    __ensure_directory(config.bin_path)
 
-    config_file_name = "otp/bin/build-config.json"
+    config_file_name = config.bin_path + "/build-config.json"
 
     with open(config_file_name, "w", encoding="utf-8") as f:
         json.dump(config, f)
@@ -249,7 +253,7 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     print("Building graph for " + place_id_str[0] + " on " + target_date.isoformat())
     print(place)
 
-    graph_files = ["./otp/data/" + place_id + "-" + target_date.isoformat().replace(":", "") + "-graph.obj" for place_id in place_id_str]
+    graph_files = [config.data_path + "/" + place_id + "-" + target_date.isoformat().replace(":", "") + "-graph.obj" for place_id in place_id_str]
 
     __ensure_otp_downloaded()
 
@@ -282,18 +286,18 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
 
     print("Building graph...")
     subprocess.run(
-        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--build", "--save", "./otp/bin/"])
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--build", "--save", config.bin_path + "/"])
     print("Done")
 
-    if not os.path.isfile("./otp/bin/graph.obj"):
+    if not os.path.isfile(config.bin_path + "/graph.obj"):
         print("Graph not built")
         return None
 
     print("Graph built")
     # move to data directory
-    __ensure_directory("otp/data")
+    __ensure_data_directory()
 
-    os.rename("./otp/bin/graph.obj", graph_file)
+    os.rename(config.bin_path + "/graph.obj", graph_file)
     return {
         "otp_version": version,
         "graph_file": graph_file,
@@ -320,21 +324,21 @@ def run_server(graph_file, memory_gb=4, api_timeout=20):
         return None
 
     print("Moving graph file...")
-    os.rename(graph_file, "./otp/bin/graph.obj")
+    os.rename(graph_file, config.bin_path + "/graph.obj")
 
     __use_run_config(api_timeout)
 
     # store graph file name prefix
     graph_file_prefix = os.path.basename(graph_file).rstrip("-graph.obj")
 
-    with open("otp/bin/graph-source.json", "w", encoding="utf-8") as f:
+    with open(config.bin_path + "/graph-source.json", "w", encoding="utf-8") as f:
         json.dump({
             "source": graph_file_prefix
         }, f)
 
     print("Starting server...")
     return subprocess.Popen(
-        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", "otp/bin/" + file_name, "--load", "./otp/bin/"],
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--load", config.bin_path + "/"],
         stdout=subprocess.PIPE, text=True, encoding="utf-8")
 
 

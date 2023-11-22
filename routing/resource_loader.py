@@ -1,5 +1,4 @@
 import time
-import uuid
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urljoin
 

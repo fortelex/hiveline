@@ -1,28 +1,12 @@
-import warnings
 from datetime import datetime
 
-import folium
 import h3
-import pandas as pd
 import polyline
 import skmob
-import branca.colormap as cm
 
 
 def get_time(timestamp):
     return datetime.utcfromtimestamp(timestamp / 1000)
-
-
-def add_traces_to_map(map_f, traces, max_points_per_trace=None):
-    warnings.filterwarnings('ignore', 'If necessary, trajectories will be down-sampled', UserWarning)
-    for trace in traces:
-        tdf = trace["tdf"]
-        color = trace["color"]
-        map_f = tdf.plot_trajectory(map_f=map_f, start_end_markers=False, max_users=1,
-                                    max_points=max_points_per_trace,
-                                    hex_color=color)
-
-    return map_f
 
 
 def get_a_point(traces):
@@ -32,6 +16,13 @@ def get_a_point(traces):
 
 
 def get_trace_heatmap_data(traces):
+    """
+    Converts trace data to a dictionary with the h3 hexagon id as key and the heat value as value. You can use this
+    in a CityPlotter instance to add a custom heatmap.
+    :param traces: list of trace objects. each trace object is a dict with keys: tdf, color where tdf is a
+    TrajDataFrame and color is a hex color string
+    :return: a dictionary with the h3 hexagon id as key and the heat value as value
+    """
     data = {}
 
     for tdf in traces:
@@ -49,54 +40,14 @@ def get_trace_heatmap_data(traces):
     return data
 
 
-# Convert H3 hexagons to geographic boundaries and create DataFrame
-def __hexagon_to_polygon(hexagon):
-    boundary = h3.h3_to_geo_boundary(hexagon, True)
-    return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
-
-
-def add_heatmap_to_map(map_f, data):
-    df = pd.DataFrame([
-        {"hexagon": hexagon, "count": count, "geometry": __hexagon_to_polygon(hexagon)}
-        for hexagon, count in data.items()
-    ])
-
-    maximum = df['count'].max()
-
-    # Define a color scale
-    linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
-    opacity = 0.5
-
-    # Add Hexagons to the map
-    for _, row in df.iterrows():
-        val = row['count'] / maximum
-        color = linear(val)
-        folium.Polygon(
-            locations=row['geometry'],
-            fill=True,
-            fill_color=color,
-            color=color,
-            weight=1,
-            fill_opacity=opacity,
-            opacity=opacity,
-            tooltip=f"{row['count']} trace points"
-        ).add_to(map_f)
-
-    # Add color scale legend
-    linear.add_to(map_f)
-
-    return map_f
-
-
-def get_simulation_traces(db, sim_id, max_traces=None):
-    route_results = db["route-results"]
-
-    results = route_results.find({"sim-id": sim_id})
-
-    return extract_traces(results, max_traces)
-
-
 def extract_traces(route_results, max_traces=None, selection=None):
+    """
+    Extracts traces from route results
+    :param route_results: the route results
+    :param max_traces: the maximum number of traces to extract
+    :param selection: the selected option for each route result (from decision module)
+    :return: a list of trace objects. each object contains a tdf (skmob.TrajDataFrame) and a color
+    """
     traces = []
 
     color_map = {

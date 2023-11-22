@@ -1,8 +1,12 @@
+import warnings
+
 import folium
+import h3
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mpl_colors
 import geopandas as gpd
+import pandas as pd
 from selenium import webdriver
 import time
 import os
@@ -74,15 +78,77 @@ class CityPlotter():
             geo_j = folium.GeoJson(data=geo_j, style_function=style_heatmap)
             geo_j.add_to(self.map)
 
+    # Convert H3 hexagons to geographic boundaries and create DataFrame
+    def __hexagon_to_polygon(self, hexagon):
+        boundary = h3.h3_to_geo_boundary(hexagon, True)
+        return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
+
+    def add_custom_hex_heatmap(self, data):
+        """
+        Add a custom heatmap to the map. For adding city input data, use add_hex_heatmap instead.
+        :param data: a dictionary with the h3 hexagon id as key and the heat value as value
+        :return:
+        """
+        df = pd.DataFrame([
+            {"hexagon": hexagon, "count": count, "geometry": __hexagon_to_polygon(hexagon)}
+            for hexagon, count in data.items()
+        ])
+
+        maximum = df['count'].max()
+
+        # Define a color scale
+        linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
+        opacity = 0.5
+
+        # Add Hexagons to the map
+        for _, row in df.iterrows():
+            val = row['count'] / maximum
+            color = linear(val)
+            folium.Polygon(
+                locations=row['geometry'],
+                fill=True,
+                fill_color=color,
+                color=color,
+                weight=1,
+                fill_opacity=opacity,
+                opacity=opacity,
+                tooltip=f"{row['count']} trace points"
+            ).add_to(self.map)
+
+        # Add color scale legend
+        linear.add_to(self.map)
+
     def show_map(self):
         return display(self.map)
 
     def setup_webdriver(self):
+        """
+        Creates a new headless chrome webdriver instance
+        :return: webdriver instance
+        """
         options = webdriver.ChromeOptions()
         # do not show chrome
         options.add_argument("--headless")
         driver = webdriver.Chrome(options=options)
         return driver
+
+    def add_traces(self, traces, max_points_per_trace=None):
+        """
+        Add traces to the map
+        :param traces: list of trace objects. each trace object is a dict with keys: tdf, color where tdf is a
+        TrajectoryDataFrame and color is a hex color string
+        :param max_points_per_trace: max number of points to plot per trace
+        :return:
+        """
+        # ignore warning about down-sampling
+        warnings.filterwarnings('ignore', 'If necessary, trajectories will be down-sampled', UserWarning)
+        for trace in traces:
+            tdf = trace["tdf"]
+            color = trace["color"]
+            # need to plot each trace separately to be able to set the color
+            self.map = tdf.plot_trajectory(map_f=self.map, start_end_markers=False, max_users=1,
+                                           max_points=max_points_per_trace,
+                                           hex_color=color)
 
     def export_to_png(self, folder='images/', filename='image', tall_city=False, webdriver=None):
         if webdriver is None:
@@ -104,6 +170,5 @@ class CityPlotter():
         webdriver.get("file:///" + filepath + '.html')
         time.sleep(0.2)
         webdriver.save_screenshot(filepath + '.png')
-        webdriver.close()
         if os.path.exists(filepath_html):
             os.remove(filepath_html)

@@ -4,7 +4,7 @@ import folium
 
 from mongo.mongo import get_database
 
-from virtual_commuter import vc_extract
+from vc import vc_extract
 
 # todo: move to results and use CityPlotter
 

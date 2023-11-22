@@ -2,7 +2,7 @@ from visualization.plot import traces
 from mongo.mongo import get_database
 
 from decision import congestion, modal_shares
-from origin_destination.od.place import Place
+from od.place import Place
 from visualization.plot.map import CityPlotter
 
 

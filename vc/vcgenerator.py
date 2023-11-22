@@ -3,16 +3,15 @@ import numpy as np
 from shapely.geometry import Point
 from .virtualcommuter import VirtualCommuter
 from shapely.ops import transform
-from shapely.geometry import LineString
 from pyproj import Transformer
 import os
 import sys
 from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.getenv("PROJECT_PATH"))
-from origin_destination.od.stats import Stats
-from origin_destination.od.variables import min_distance_to_take_car
-from mongo import mongo
+from od.stats import Stats
+from od.variables import min_distance_to_take_car
+
 
 # better random
 def rand():

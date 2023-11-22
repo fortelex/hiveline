@@ -12,7 +12,7 @@ import pymongo.errors
 import otp
 import otp_builder as builder
 from mongo.mongo import get_database
-from virtual_commuter import vc_extract
+from vc import vc_extract
 
 
 def __reset_jobs(db, sim_id):

@@ -7,7 +7,7 @@ load_dotenv()
 sys.path.append(os.getenv("PROJECT_PATH"))
 from mongo.mongo import get_database, get_place_id
 from vc.vcgenerator import VirtualCommuterGenerator
-from origin_destination.od.place import Place
+from od import Place
 '''
 Generate a bunch of virtual commuters within a simulation
 '''

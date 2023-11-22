@@ -1,10 +1,10 @@
 # Origin Destination 
 Here are gathered and standardized the population, demographic and zoning data that can then be used to generate virtual commuters.
 
-The Jupyter notebooks were used to test the implementations before making it a structured package, they can still be used to generate data ([`demographic_stats.ipynb`](./demographic_stats.ipynb)), and  visualizations ([`zoning_visualization.ipynb`](./zoning_visualization.ipynb)).  
+The Jupyter notebooks were used to test the implementations before making it a structured package, they can still be used to generate data ([`demographic_stats.ipynb`](../examples/demographic_stats.ipynb)), and  visualizations ([`zoning_visualization.ipynb`](../examples/zoning_visualization.ipynb)).  
 
 ## Package
-The [`od`](./od/) package helps to process and generate:
+The [`od`](../od/) package helps to process and generate:
 - demographic data at a regional level 
 - zoning data at hexagonal tile precision
 

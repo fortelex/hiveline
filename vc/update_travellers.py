@@ -1,4 +1,4 @@
-from virtual_commuter import vc_extract
+from vc import vc_extract
 
 from mongo import mongo
 

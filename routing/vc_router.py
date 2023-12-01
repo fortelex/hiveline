@@ -1,3 +1,12 @@
+if __name__ == "__main__":
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    sys.path.append(os.getenv("PROJECT_PATH"))
+
 import argparse
 import math
 import os
@@ -9,10 +18,10 @@ from datetime import datetime, timedelta
 
 import pymongo.errors
 
-import otp
-import otp_builder as builder
-from mongo.mongo import get_database
-from vc import vc_extract
+import routing.otp as otp
+import routing.otp_builder as builder
+from mongo import get_database
+import vc.vc_extract as vc_extract
 
 
 def __reset_jobs(db, sim_id):
@@ -279,12 +288,16 @@ def __extract_relevant_data(route_details):
 
     modes = [__extract_mode_data(leg) for leg in itinerary["legs"]]
 
+    recalc_count = 0
+    if "recalcCount" in itinerary:
+        recalc_count = itinerary["recalcCount"]
+
     return {
         "route-option-id": route_details["route-option-id"],
         "route-duration": duration,
         "route-changes": changes,
         "route-delay": delay,
-        "route-recalculations": itinerary["reCalcCount"],
+        "route-recalculations": recalc_count,
         "modes": modes
     }
 
@@ -382,7 +395,8 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1, client_timeout=40
             should_route = vc_extract.should_route(vc)
 
             if should_route:
-                __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta, client_timeout)
+                __process_virtual_commuter(route_results_coll, route_options_coll, vc, sim, use_delays, meta,
+                                           client_timeout)
 
             # set status to finished
             jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
@@ -398,9 +412,9 @@ def __iterate_jobs(db, sim, meta, debug=False, progress_fac=1, client_timeout=40
 
             consecutive_error_number += 1
 
-            if consecutive_error_number >= 20:
+            if consecutive_error_number >= 5:
                 print("Too many consecutive errors, stopping")
-                break
+                raise e
 
 
 def __spawn_job_pull_threads(db, sim, meta, num_threads=4, client_timeout=40):
@@ -423,14 +437,17 @@ def __wait_for_line(process, line_to_wait_for):
     :param line_to_wait_for: the line to wait for
     :return:
     """
-    for line in iter(process.stdout.readline, b''):
-        print(line, end='')  # Optional: print the line
-        if line_to_wait_for in line:
+    while True:
+        line = process.stdout.readline()
+        if not line:
             break
+        decoded_line = line.strip()
+        if line_to_wait_for in decoded_line:
+            return
 
 
-def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4, num_threads=4,
-        reset_jobs=False, reset_failed=False, api_timeout=20):
+def __route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4, server_memory=4,
+                            num_threads=4, reset_jobs=False, reset_failed=False, api_timeout=20, db=None):
     """
     Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
@@ -443,9 +460,11 @@ def run(sim_id, use_delays=True, force_graph_rebuild=False, graph_build_memory=4
     :param reset_jobs: Whether to reset all jobs to pending or not
     :param reset_failed: Whether to reset all failed jobs to pending or not
     :param api_timeout: The timeout for the OTP server
+    :param db: The database
     :return:
     """
-    db = get_database()
+    if db is None:
+        db = get_database()
 
     if reset_jobs:
         __reset_jobs(db, sim_id)
@@ -523,11 +542,13 @@ if __name__ == "__main__":
     parser.add_argument('--reset-jobs', dest='reset_jobs', action='store_true', help='Whether to reset all jobs for '
                                                                                      'this simulation')
     parser.add_argument('--reset-failed', dest='reset_failed', action='store_true', help='Whether to reset all failed '
-                                                                                      'jobs for this simulation')
-    parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=20, help='The timeout for the OTP server (in seconds)')
+                                                                                         'jobs for this simulation')
+    parser.add_argument('--api-timeout', dest='api_timeout', type=int, default=20,
+                        help='The timeout for the OTP server (in seconds)')
 
     args = parser.parse_args()
 
-    run(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory, args.server_memory,
-        args.num_threads,
-        args.reset_jobs, args.reset_failed, args.api_timeout)
+    __route_virtual_commuters(args.sim_id, not args.no_delays, args.force_graph_rebuild, args.graph_build_memory,
+                            args.server_memory,
+                            args.num_threads,
+                            args.reset_jobs, args.reset_failed, args.api_timeout, db=None)

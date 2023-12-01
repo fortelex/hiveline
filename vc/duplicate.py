@@ -3,7 +3,7 @@ import uuid
 
 import pymongo.errors
 
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 
 def __copy_virtual_commuters(db, from_sim_id, to_sim_id):

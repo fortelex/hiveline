@@ -6,7 +6,7 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.getenv("PROJECT_PATH"))
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 ### Deprecated, use for test only ###
 

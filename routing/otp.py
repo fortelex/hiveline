@@ -3,7 +3,7 @@ from datetime import datetime
 import numpy as np
 import requests
 
-from mongo import mongo
+from mongo import get_database
 
 
 def get_route(from_lat, from_lon, to_lat, to_lon, date, time, is_arrival=False, modes=None, client_timeout=40):
@@ -132,7 +132,7 @@ def __read_delay_statistics():
 
     :param path: path to the delay files
     """
-    db = mongo.get_database()
+    db = get_database()
 
     coll = db["delay-statistics"]
 

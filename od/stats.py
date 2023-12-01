@@ -4,10 +4,7 @@ from .variables import *
 import os
 import sys
 from dotenv import load_dotenv
-load_dotenv()
-# add an environment variable storing the file path to the current project directory
-sys.path.append(os.getenv("PROJECT_PATH"))
-from mongo import mongo
+import mongo
 
 def df_to_percent(df, index):
     '''

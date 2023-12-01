@@ -1,6 +1,6 @@
 from vc import vc_extract
 
-from mongo import mongo
+from mongo import db
 
 
 def update_travellers(db, sim_id):

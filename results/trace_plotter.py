@@ -1,5 +1,5 @@
 from visualization.plot import traces
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 from decision import congestion, modal_shares
 from od.place import Place
@@ -17,7 +17,7 @@ def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, t
     if only_use_selected:
         result_options = congestion.find_matching_route_options(db, sim_id, results)
 
-        modal_shares.get_modal_share(result_options, out_selection=selection)
+        modal_shares.get_option_stats(result_options, out_selection=selection)
 
     print("Extracting traces...")
     all_to_plot = traces.extract_traces(results, selection=selection)

@@ -1,6 +1,7 @@
 # OTP Interface
 
-Interface for OpenTripPlanner (OTP) to be used with the [OpenTripPlanner](http://www.opentripplanner.org/) project.
+Interface for OpenTripPlanner (OTP) to be used with the [OpenTripPlanner](http://www.opentripplanner.org/) project. For automatic building
+of the graph and starting the server, see [here](../readme.md).
 
 ## Installation
 
@@ -32,7 +33,7 @@ java -Xmx4G -jar otp-2.4.0-shaded.jar --build --save .
 java -Xmx4G -jar otp-2.4.0-shaded.jar --load .
 ```
 
-### Explor API at
+### Explore API at
 
 ```
 http://localhost:8080/graphiql

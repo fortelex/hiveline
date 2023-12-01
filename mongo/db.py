@@ -1,10 +1,7 @@
 import os
 
-from pymongo import MongoClient
-from dotenv import load_dotenv
 import pandas as pd
-
-load_dotenv()
+from pymongo import MongoClient, UpdateOne
 
 
 def get_database():
@@ -24,20 +21,38 @@ def dict_to_df(dictionnary):
     df = pd.DataFrame(dictionnary.find({}))
     return df
 
+
 def df_to_dict(df):
     return df.to_dict('records')
 
+
 def push_to_collection(db, collection, array):
-    db[collection].insert_many(array)
+    """
+    Upserts many documents in a collection
+    :param db: the database
+    :param collection: the collection
+    :param array: the documents to upsert (need _id)
+    :return:
+    """
+    operations = [
+        UpdateOne({'_id': doc['_id']}, {'$set': {
+            k: v for k, v in doc.items() if k != '_id'
+        }}, upsert=True) for doc in array
+    ]
+
+    db[collection].bulk_write(operations)
+
 
 def mongo_to_df(db, collection):
     assert collection in db.list_collection_names(), "This collection doesn't exists"
     df = dict_to_df(db[collection])
     return df
 
+
 def df_to_mongo(db, collection, df):
     d = df_to_dict(df)
     push_to_collection(db, collection, d)
+
 
 def transform_tiles_from_mongo(df):
     '''
@@ -50,12 +65,13 @@ def transform_tiles_from_mongo(df):
     elif 'parking' in df.columns:
         prefix = 'parking'
     # extract work sub dict to df
-    df = pd.concat([df, pd.DataFrame.from_records(df[prefix].to_list()).add_prefix(prefix+'_')], axis=1)
+    df = pd.concat([df, pd.DataFrame.from_records(df[prefix].to_list()).add_prefix(prefix + '_')], axis=1)
     df = df.drop(columns=prefix)
     df = df.rename(columns={'_id': 'h3', 'nuts-3': 'nuts3', 'shape': 'geometry'})
-    if prefix=='work':
+    if prefix == 'work':
         df = df.rename(columns={'work_total': 'work'})
     return df
+
 
 def transform_regions_from_mongo(df):
     '''
@@ -63,12 +79,13 @@ def transform_regions_from_mongo(df):
     '''
     prefixes = [c for c in df.columns if c in ['age', 'vehicle', 'employment_rate', 'employment_type']]
     # extract the sub dicts
-    df = pd.concat([df]+[pd.DataFrame.from_records(df[p].to_list()).add_prefix(p+'_') for p in prefixes], axis=1)
+    df = pd.concat([df] + [pd.DataFrame.from_records(df[p].to_list()).add_prefix(p + '_') for p in prefixes], axis=1)
     df = df.drop(columns=prefixes)
     df = df.rename(columns={'_id': 'nuts3'})
     return df
 
-def search(db, collection, match_field ,match_ids, fields):
+
+def search(db, collection, match_field, match_ids, fields):
     '''
     Search if the region_ids are in the db and returns the values for given fields
     Args:
@@ -79,21 +96,22 @@ def search(db, collection, match_field ,match_ids, fields):
     Returns:
         pd.DataFrame
     '''
-    if collection=='tiles':
+    if collection == 'tiles':
         match_dict = {
             'nuts-3': 'nuts3',
             '_id': 'h3',
         }
-    elif collection=='regions':
+    elif collection == 'regions':
         match_dict = {
             '_id': 'nuts3',
         }
 
-    fields_query = {f:1 for f in fields}
-    result = db[collection].find( { match_field: { '$in': match_ids } }, fields_query )
+    fields_query = {f: 1 for f in fields}
+    result = db[collection].find({match_field: {'$in': match_ids}}, fields_query)
     df = pd.DataFrame.from_records(result)
     df = df.rename(columns=match_dict)
     return df
+
 
 def get_place_id(db, place_name):
     name, country = place_name.split(', ')

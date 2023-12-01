@@ -10,9 +10,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from selenium import webdriver
 
-from mongo.mongo import get_database
-import vc_extract
-import congestion
+from mongo.db import get_database
+import vc.vc_extract as vc_extract
+import results.congestion as congestion
 
 rail_modes = ["rail", "tram", "subway"]
 
@@ -46,7 +46,7 @@ def __option_has_car(option):
     return False
 
 
-def get_modal_share(route_options, mask=None, delay_set=None, out_selection=None, params=None):
+def get_option_stats(route_options, mask=None, delay_set=None, out_selection=None, params=None):
     """
     Get the modal share for a set of route options
     :param route_options: the route options
@@ -209,6 +209,29 @@ def get_modal_share(route_options, mask=None, delay_set=None, out_selection=None
            }, out_mask
 
 
+def get_sim_stats(sim_id, params=None, db=None):
+    """
+    Get the stats for a simulation
+    :param sim_id: the simulation id
+    :param params: the simulation parameters
+    :param db: the database
+    :return: the stats
+    """
+    if params is None:
+        params = Params()
+
+    if db is None:
+        db = get_database()
+
+    route_options = db["route-options"]
+
+    results = route_options.find({"sim-id": sim_id})
+
+    stats, _ = get_option_stats(results, params=params)
+
+    return stats
+
+
 def get_transit_modal_share(stats):
     """
     Get the transit modal share according to UPPER definition from the stats
@@ -292,7 +315,7 @@ def run_decisions(db, sim_id, params=None):
 
     results = route_options.find({"sim-id": sim_id})
 
-    stats, _ = get_modal_share(results, params=params)
+    stats, _ = get_option_stats(results, params=params)
 
     print(stats)
 
@@ -342,7 +365,7 @@ def run_congestion_simulation(db, sim_id, params: Params):
         delay_set = congestion.get_delay_set_from_congestion(congestion_set, journeys, route_options, edges,
                                                              params.congestion_options)
 
-        stats, next_mask = get_modal_share(route_options, mask, delay_set)
+        stats, next_mask = get_option_stats(route_options, mask, delay_set)
 
         modal_share = get_transit_modal_share(stats)
 
@@ -485,17 +508,20 @@ def run_modal_share_for_some_cities():
         })
 
 
-def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
+def plot_monte_carlo_convergence(sim_id, db=None, city_name=None, params=None):
     """
     Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
-    :param db: the database
     :param sim_id: the simulation id
+    :param db: the database
     :param city_name: the city name to add to the plot
     :param params: the parameters
     :return:
     """
     if params is None:
         params = Params()
+
+    if db is None:
+        db = get_database()
 
     color_map = {
         "walk": "#D280CE",
@@ -518,8 +544,7 @@ def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
     vc_count = []
 
     for i in range(num_steps):
-        print("Running for " + str(num_to_plot) + " results")
-        stats, _ = get_modal_share(results[:num_to_plot], params=params)
+        stats, _ = get_option_stats(results[:num_to_plot], params=params)
         modal_share = get_all_modal_shares(stats)
         modal_shares.append(modal_share)
         vc_count.append(num_to_plot)
@@ -556,7 +581,7 @@ def __plot_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
     plt.show()
 
 
-def plot_monte_carlo_convergence():
+def __plot_common_monte_carlo_convergence():
     db = get_database()
     params = Params()
     params.car_usage_override = 0
@@ -565,7 +590,7 @@ def plot_monte_carlo_convergence():
         print("Running for " + city["name"])
         params.num_citizens = city["inhabitants"]
 
-        __plot_monte_carlo_convergence(db, city["sim-id"], city["name"], params)
+        plot_monte_carlo_convergence(city["sim-id"], db, city["name"], params)
 
 
 def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
@@ -596,7 +621,7 @@ def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=No
 
     for i in range(num_steps):
         print("Running for " + str(num_to_plot) + " results")
-        stats, _ = get_modal_share(results[:num_to_plot], params=params)
+        stats, _ = get_option_stats(results[:num_to_plot], params=params)
         modal_share = get_transit_modal_share(stats)
         modal_shares.append(modal_share)
         vc_count.append(num_to_plot)
@@ -728,7 +753,7 @@ def analyze_waling_distances(city):
 
     choices = [None] * len(journeys)
 
-    get_modal_share(journeys, out_selection=choices, params=params)
+    get_option_stats(journeys, out_selection=choices, params=params)
     walk_distances = []
 
     for (i, journey) in enumerate(journeys):
@@ -798,7 +823,7 @@ if __name__ == "__main__":
     # plot_transit_monte_carlo_convergence()
     # plot_paris_congestion()
     # analyze_waling_distances(common_cities[2])
-    plot_monte_carlo_convergence()
+    __plot_common_monte_carlo_convergence()
     # plot_transit_monte_carlo_convergence()
 
 

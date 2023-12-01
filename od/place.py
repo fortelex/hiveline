@@ -3,16 +3,16 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 import osmnx as ox
+import pymongo.errors
 import shapely.geometry
 import matplotlib.pyplot as plt
+
+import mongo
 from .tags import *
 from .variables import data_folder, point_area, default_work_coefficient, parking_prob
 import os
 import sys
 from dotenv import load_dotenv
-load_dotenv()
-sys.path.append(os.getenv("PROJECT_PATH"))
-from mongo import mongo
 
 
 def only_geo_points(gdf):
@@ -80,6 +80,9 @@ class Place():
         if self.tiles.crs == None:
             self.tiles = self.tiles.set_crs(self.shape.crs)
 
+        # ensure h3 is int64
+        self.tiles['h3'] = self.tiles['h3'].astype('int64')
+
     def merge_to_data(self, gdf):
         '''
         Update (or add) a new field to the data gdf
@@ -146,6 +149,9 @@ class Place():
         # string_to_h3 needed for h3.api.numpy_int (faster)
         population_gdf['h3'] = population_gdf['h3'].apply(h3.string_to_h3)
 
+        # ensure h3 is int64
+        population_gdf['h3'] = population_gdf['h3'].astype('int64')
+
         population_gdf = population_gdf[population_gdf['h3'].isin(
             self.tiles['h3'])]
         population_gdf = population_gdf.to_crs(self.shape.crs)
@@ -155,6 +161,7 @@ class Place():
             no_data = self.tiles[~self.tiles['h3'].isin(
                 population_gdf['h3'])].copy()
             no_data['population'] = population_gdf['population'].median()
+
             population_gdf = pd.concat([population_gdf, no_data])
 
         return population_gdf
@@ -375,15 +382,15 @@ class Place():
         Push the place data to mongodb
         '''
         n = self.name.split(', ')
-        data = [{
+        data = {
             'name': n[0],
             'country': n[1],
             'shape': str(self.shape['geometry'][0]),
             'bbox': str(self.bbox),
             'tiles': self.tiles['h3'].to_list(),
             'nuts-3': self.data['nuts3'].unique().tolist(),
-        }]
-        mongo.push_to_collection(self.mongo_db, 'places', data)
+        }
+        self.mongo_db['places'].update_one({'name': data['name'], 'country': data['country']}, {'$set': data}, upsert=True)
 
     def export_tiles_to_mongo(self):
         '''

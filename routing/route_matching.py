@@ -8,7 +8,7 @@ import osmnx as ox
 import pymongo.errors
 
 import historical_osmnx
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 
 def __create_matching_jobs(db, sim_id):

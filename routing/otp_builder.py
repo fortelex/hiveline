@@ -1,3 +1,14 @@
+import time
+
+if __name__ == "__main__":
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    sys.path.append(os.getenv("PROJECT_PATH"))
+
 import argparse
 import hashlib
 import json
@@ -8,9 +19,9 @@ from datetime import datetime, timedelta
 
 import bson
 
-import gtfs_consistency
-from mongo.mongo import get_database
-import config
+import routing.gtfs_consistency as gtfs_consistency
+import routing.config as config
+from mongo import get_database
 
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"
@@ -118,12 +129,12 @@ def __ensure_data_downloaded(link_object, file_name_extension):
 
     target_file_name = config.data_path + "/" + link_hash + file_name_extension
     if os.path.isfile(target_file_name):
-        return target_file_name
+        return target_file_name, False
 
     print("Downloading " + link)
     urllib.request.urlretrieve(link, target_file_name)
 
-    return target_file_name
+    return target_file_name, True
 
 
 def __ensure_closest_pbf_downloaded(place, target_date):
@@ -141,7 +152,7 @@ def __ensure_closest_pbf_downloaded(place, target_date):
 
     print(closest_osm_link)
 
-    closest_osm_file = __ensure_data_downloaded(closest_osm_link, ".pbf")
+    closest_osm_file, _ = __ensure_data_downloaded(closest_osm_link, ".pbf")
     return {
         "file": closest_osm_file,
         "source": closest_osm_link["link"],
@@ -166,10 +177,10 @@ def __ensure_closest_gtfs_downloaded(place, target_date):
 
         print(closest_gtfs_link)
 
-        closest_gtfs_file = __ensure_data_downloaded(closest_gtfs_link, ".gtfs.zip")
+        closest_gtfs_file, downloaded = __ensure_data_downloaded(closest_gtfs_link, ".gtfs.zip")
 
-        # fix inconsistencies
-        gtfs_consistency.fix_gtfs(closest_gtfs_file)
+        if downloaded:
+            gtfs_consistency.fix_gtfs(closest_gtfs_file)  # fix inconsistencies
 
         links.append({
             "file": closest_gtfs_file,
@@ -188,14 +199,14 @@ def __use_run_config(api_processing_timeout=20):
     :return:
     """
 
-    config = {
+    run_config = {
         "server": {
             "apiProcessingTimeout": str(api_processing_timeout) + "s"
         }
     }
 
     with open(config.bin_path + "/router-config.json", "w") as f:
-        json.dump(config, f)
+        json.dump(run_config, f)
 
 
 def __use_build_config(osm_files, gtfs_files, target_date):
@@ -214,7 +225,7 @@ def __use_build_config(osm_files, gtfs_files, target_date):
     min_date = (target_date - timedelta(days=365)).strftime("%Y-%m-%d")
     max_date = (target_date + timedelta(days=365)).strftime("%Y-%m-%d")
 
-    config = {
+    build_config = {
         "osm": [{"source": f} for f in osm_files],
         "transitFeeds": [{"type": "gtfs", "source": f} for f in gtfs_files],
         "transitServiceStart": min_date,
@@ -227,7 +238,7 @@ def __use_build_config(osm_files, gtfs_files, target_date):
     config_file_name = config.bin_path + "/build-config.json"
 
     with open(config_file_name, "w", encoding="utf-8") as f:
-        json.dump(config, f)
+        json.dump(build_config, f)
 
 
 def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
@@ -250,10 +261,8 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
 
     place_id_str = [str(place_id) for place_id in place_ids]
 
-    print("Building graph for " + place_id_str[0] + " on " + target_date.isoformat())
-    print(place)
-
-    graph_files = [config.data_path + "/" + place_id + "-" + target_date.isoformat().replace(":", "") + "-graph.obj" for place_id in place_id_str]
+    graph_files = [config.data_path + "/" + place_id + "-" + target_date.isoformat().replace(":", "") + "-graph.obj" for
+                   place_id in place_id_str]
 
     __ensure_otp_downloaded()
 
@@ -285,9 +294,11 @@ def build_graph(place, target_date, force_rebuild=False, memory_gb=4):
     __use_build_config([osm_resource["file"]], [gtfs_resource["file"] for gtfs_resource in gtfs_resources], target_date)
 
     print("Building graph...")
-    subprocess.run(
-        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--build", "--save", config.bin_path + "/"])
+    result = subprocess.run(
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--build", "--save",
+         config.bin_path + "/"])
     print("Done")
+    print(json.dumps(result.__dict__))
 
     if not os.path.isfile(config.bin_path + "/graph.obj"):
         print("Graph not built")
@@ -337,9 +348,11 @@ def run_server(graph_file, memory_gb=4, api_timeout=20):
         }, f)
 
     print("Starting server...")
+
     return subprocess.Popen(
-        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--load", config.bin_path + "/"],
-        stdout=subprocess.PIPE, text=True, encoding="utf-8")
+        ["java", "-Xmx" + str(memory_gb) + "G", "-jar", config.bin_path + "/" + file_name, "--load",
+         config.bin_path + "/"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, encoding="utf-8", shell=True)
 
 
 def build_common(force_rebuild=False, memory_gb=4):
@@ -357,9 +370,9 @@ def build_common(force_rebuild=False, memory_gb=4):
             "2018-10-09",
             "2019-10-08",
         ],
-        #"": [  # hamburg
+        # "": [  # hamburg
         #    "2022-10-04",
-        #],
+        # ],
         "655a1771868acf560d1406b6": [  # leuven
             "2019-10-08",
         ],
@@ -412,6 +425,14 @@ def build_single(date, place_id, force_rebuild=False, memory_gb=4):
 
 
 if __name__ == "__main__":
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    sys.path.append(os.getenv("PROJECT_PATH"))
+
     parser = argparse.ArgumentParser(description='Builds a graph for a given place and date')
     parser.add_argument('place_id', type=str, help='The place ID or "common" for all common places (see source code)')
     parser.add_argument('--target-date', type=str, default="", help='The target date in the format YYYY-MM-DD')
@@ -424,10 +445,8 @@ if __name__ == "__main__":
     if args.place_id == "common":
         build_common()
         exit(0)
-        
+
     if args.target_date == "":
         print("please add the target-date argument for non-common building")
 
     build_single(args.target_date, args.place_id, args.force_rebuild, args.memory_gb)
-
-

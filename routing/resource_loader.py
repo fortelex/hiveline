@@ -6,7 +6,7 @@ import bson
 import requests
 from bs4 import BeautifulSoup, NavigableString
 
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 
 def __extract_geo_fabrik(base_url):
@@ -100,6 +100,9 @@ def __extract_provider_transit_feeds(base_url):
     providers = soup.select("div.panel div.list-group a.list-group-item")
 
     for provider in providers:
+        category = provider.find("span", {"class": "badge"}).get_text().strip()
+        if category != "GTFS":
+            continue
         name = ' '.join([x.strip() for x in provider if isinstance(x, NavigableString)])  # outer text
         relative_link = provider["href"].strip()
 
@@ -147,10 +150,12 @@ def __extract_location_transit_feeds(base_url):
 
 
 # todo: support mobidatalab, transit.land, navitia, ...
-def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, place_id=None):
+def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, place_id=None, db=None,
+                           skip_existing=False):
     """
     Extracts the links from given web pages and puts them into the database. At least one of geofabrik_url and
-    transitfeeds_url must be set.
+    transitfeeds_url should be set. If place_id is set, skip_existing=True and the document already exists, the
+    function will return the existing document.
 
     :param geofabrik_url: The url to the geofabrik page of the location. For example
            https://download.geofabrik.de/europe/ireland-and-northern-ireland.html
@@ -158,12 +163,20 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
            https://transitfeeds.com/l/579-dublin-ireland
     :param place_name: The name of the place. If not set, the name will be extracted from the transitfeeds page.
     :param place_id: The id of the place. If not set, a random id will be generated.
+    :param db: The database to use. If not set, the default database will be used.
+    :param skip_existing: If true, the function will not overwrite existing entries in the database.
     :return:
     """
+    if db is None:
+        db = get_database()
+
+    res = db["place-resources"]
+
+    if skip_existing and res.count_documents({"place-id": place_id}) > 0:
+        return res.find_one({"place-id": place_id})
+
     if geofabrik_url is None and transitfeeds_url is None:
         raise ValueError("At least one of geofabrik_url and transitfeeds_url must be set")
-
-    db = get_database()
 
     osm_links = __extract_geo_fabrik(geofabrik_url) if geofabrik_url is not None else []
     gtfs_links = []
@@ -191,12 +204,15 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
         "transitfeed": transitfeeds_url
     }
 
+    print("created document")
     print(doc)
 
-    db["place-resources"].insert_one(doc)
+    res.insert_one(doc)
+
+    return doc
 
 
-gf_url = "https://download.geofabrik.de/europe/germany/bayern/oberbayern.html"
-tf_url = "https://transitfeeds.com/l/734-munich-germany"
-create_place_resources(gf_url, tf_url)
-
+if __name__ == "__main__":
+    gf_url = "https://download.geofabrik.de/europe/germany/bayern/oberbayern.html"
+    tf_url = "https://transitfeeds.com/l/734-munich-germany"
+    create_place_resources(gf_url, tf_url)

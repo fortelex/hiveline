@@ -2,7 +2,7 @@ import os.path
 
 import folium
 
-from mongo.mongo import get_database
+from mongo.db import get_database
 
 from vc import vc_extract
 

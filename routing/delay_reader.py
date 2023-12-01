@@ -5,7 +5,7 @@ from os.path import isfile, join
 import pandas as pd
 import pymongo.errors
 
-from mongo import mongo
+from mongo import db
 import config
 
 

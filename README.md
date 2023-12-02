@@ -36,6 +36,8 @@ pip install -r requirements.txt
 Add the `.env` file to the root of the repository. This file contains the database credentials.
 See [here](./example.env) for an example.
 
+Currently, you also need to download and unzip a [population density file](https://geodata-eu-central-1-kontur-public.s3.eu-central-1.amazonaws.com/kontur_datasets/kontur_population_20231101.gpkg.gz) to `data/population_density/kontur_population_20231101.gpkg`
+
 ### Usage
 
 To setup a simulation and interact with the data, you can use our hiveline python package. Just import `hiveline.py`:
@@ -124,9 +126,3 @@ we make in the modal share calculation part affects which routes are used by car
 delays and therefore the decisions. Iterating this loop a few times leads to a converging model.
 
 ![Paris Congestion](docs/img/paris_congestion.png)
-
-## Usage
-
-### Requirements
-
-- Kontur dataset

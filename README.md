@@ -1,6 +1,7 @@
 # HiveLine
 
-HiveLine is an agent-based simulation tool for the purpose of urban mobility analysis which uses open data from European cities. It is a project developed in response to
+HiveLine is an agent-based simulation tool for the purpose of urban mobility analysis which uses open data from European
+cities. It is a project developed in response to
 the [UPPER Challenge](https://labs.mobidatalab.eu/challenge-details/?id=123)
 which is part of the [2023 Codagon](https://labs.mobidatalab.eu/living-lab-details/?id=90) hosted
 by [MobiDataLab](https://mobidatalab.eu/).
@@ -11,6 +12,46 @@ data, [Eurostat](https://ec.europa.eu/eurostat/), etc.
 to create a traffic simulation. Our current version is focussed on commuter modal shares, but can be extended to other
 use cases as well. It is a data-driven agent-based simulation, which is able to simulate the movement of
 individuals across a city.
+
+## Usage
+
+### Prerequisites
+
+- Java 11 or higher
+- Python 3.10 or higher
+- MongoDB Server
+
+### Installation
+
+Clone the repository and install the dependencies:
+
+```bash
+git clone https://github.com/marksk1/hiveline
+cd hiveline
+pip install -r requirements.txt
+```
+
+### Setup
+
+Add the `.env` file to the root of the repository. This file contains the database credentials.
+See [here](./example.env) for an example.
+
+Currently, you also need to download and unzip a [population density file](https://geodata-eu-central-1-kontur-public.s3.eu-central-1.amazonaws.com/kontur_datasets/kontur_population_20231101.gpkg.gz) to `data/population_density/kontur_population_20231101.gpkg`
+
+### Usage
+
+To setup a simulation and interact with the data, you can use our hiveline python package. Just import `hiveline.py`:
+
+```python
+import hiveline
+
+place = hiveline.Place(place_name)
+place.load_population()
+place.plot_zoning(['population'], save_name='population')
+```
+
+See [this python notebook](examples/basic-usage.ipynb) for a full example on how to create and evaluate a basic
+simulation.
 
 ## Methodology
 
@@ -85,4 +126,3 @@ we make in the modal share calculation part affects which routes are used by car
 delays and therefore the decisions. Iterating this loop a few times leads to a converging model.
 
 ![Paris Congestion](docs/img/paris_congestion.png)
-

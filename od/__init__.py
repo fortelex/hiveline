@@ -6,4 +6,4 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.getenv("PROJECT_PATH"))
 
-from mongo.db import *
+from od.place import *

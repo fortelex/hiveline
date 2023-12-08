@@ -1,0 +1,25 @@
+age:
+    Population on 1 January by age group, sex and NUTS 3 region
+    https://ec.europa.eu/eurostat/databrowser/view/demo_r_pjangrp3/default/table
+
+employment_rate:
+    Employment rates by sex, age and NUTS 2 regions (%)
+    https://ec.europa.eu/eurostat/databrowser/view/lfst_r_lfe2emprt__custom_8403099/default/table?lang=en
+
+employment_type:
+    Employment (thousand persons) by NUTS 3 regions
+    https://ec.europa.eu/eurostat/databrowser/view/nama_10r_3empers__custom_8402748/default/table?lang=en
+    A lot of countries are missing for 2021
+
+income:
+    Income of households by NUTS 2 regions
+    https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2hhinc/default/map?lang=en
+    2020
+
+    Mean and median income by degree of urbanisation
+    https://ec.europa.eu/eurostat/databrowser/view/ilc_di17__custom_8470810/default/table?lang=en
+
+motorization:
+    Stock of vehicles by category and NUTS 2 regions
+    https://ec.europa.eu/eurostat/databrowser/view/TRAN_R_VEHST__custom_8470521/default/map?lang=en
+    Latest data is 2021, but some missing regions (France, Portugal) can be replaced with 2020

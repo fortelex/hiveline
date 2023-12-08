@@ -1,7 +1,0 @@
-Employment (thousand persons) by NUTS 3 regions
-https://ec.europa.eu/eurostat/databrowser/view/nama_10r_3empers__custom_8402748/default/table?lang=en
-
-A lot of countries are missing for 2021
-
-Employment rates by sex, age and NUTS 2 regions (%)
-https://ec.europa.eu/eurostat/databrowser/view/lfst_r_lfe2emprt__custom_8403099/default/table?lang=en

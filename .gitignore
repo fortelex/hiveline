@@ -166,7 +166,7 @@ cython_debug/
 .fuse_*
 
 # very big file
-data/population_density/kontur_population_20231101.gpkg
+hiveline/data/population_density/kontur_population_20231101.gpkg
 
 # local archive folder
 _archive

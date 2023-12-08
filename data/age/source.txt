@@ -1,3 +1,0 @@
-Population on 1 January by age group, sex and NUTS 3 region
-https://ec.europa.eu/eurostat/databrowser/view/demo_r_pjangrp3/default/table
-

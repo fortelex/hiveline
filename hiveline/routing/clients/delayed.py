@@ -1,18 +1,15 @@
-from hiveline.routing import fptf
-from hiveline.routing.clients.routing_client import RoutingClient
 import datetime
 
 import numpy as np
-import requests
 
 from hiveline.mongo.db import get_database
+from hiveline.routing import fptf
+from hiveline.routing.clients.routing_client import RoutingClient
 
 
-def __read_delay_statistics():
+def _read_delay_statistics():
     """
     This function reads the delay statistics from the database
-
-    :param path: path to the delay files
     """
     db = get_database()
 
@@ -41,11 +38,10 @@ def __read_delay_statistics():
 
 
 class DelayedRoutingClient(RoutingClient):
-    def __init__(self, base: RoutingClient, client_timeout=40):
+    def __init__(self, base: RoutingClient):
         # This dictionary stores the delay data for each operator
-        self.delay_data = __read_delay_statistics()
+        self.delay_data = _read_delay_statistics()
         self.base = base
-        self.client_timeout = client_timeout
 
     def __get_random_delay(self, operator_name):
         """
@@ -88,9 +84,9 @@ class DelayedRoutingClient(RoutingClient):
 
     def get_journey(self, from_lat, from_lon, to_lat, to_lon, departure, modes):
         """
-        This function returns a delayed itinerary for the specified parameters. It uses the fastest itinerary from OTP and
-        adds a random delay to each leg of the itinerary. If a leg is cancelled or the traveller cannot catch the next
-        connection, OTP may be queried multiple times.
+        This function returns a delayed itinerary for the specified parameters. It uses the fastest itinerary from OTP
+        and adds a random delay to each leg of the itinerary. If a leg is cancelled or the traveller cannot catch the
+        next connection, OTP may be queried multiple times.
 
         :param from_lat: latitude of the start location
         :param from_lon: longitude of the start location
@@ -192,5 +188,6 @@ class DelayedRoutingClient(RoutingClient):
                 return None
 
         return fptf.Journey(
+            id=None,
             legs=result_legs
         )

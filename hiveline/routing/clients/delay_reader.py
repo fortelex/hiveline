@@ -5,9 +5,7 @@ from os.path import isfile, join
 import pandas as pd
 import pymongo.errors
 
-
 import hiveline.mongo.db as mongo
-import config
 
 
 def read_and_upload_statistics(directory):
@@ -64,6 +62,3 @@ def read_and_upload_statistics(directory):
             coll.insert_one(dict(doc))
         except pymongo.errors.DuplicateKeyError:
             coll.replace_one({"name": normalized_name}, doc)
-
-
-read_and_upload_statistics(config.delay_path)

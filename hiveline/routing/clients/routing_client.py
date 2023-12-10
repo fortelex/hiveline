@@ -1,9 +1,13 @@
+import datetime
 from abc import ABC, abstractmethod
 
+from hiveline.routing import fptf
 
-class Router(ABC):
+
+class RoutingClient(ABC):
     @abstractmethod
-    def get_journey(self, from_lat, from_lon, to_lat, to_lon, departure, modes):
+    def get_journey(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
+                    modes: list[fptf.Mode]) -> fptf.Journey | None:
         """
         Get a route from the router
         :param from_lat: the latitude of the starting point

@@ -1,15 +1,19 @@
+import datetime
+
 import requests
-from .router import Router
+from .routing_client import RoutingClient
+from .. import fptf
 
 
-class BifrostRouter(Router):
+class BifrostRoutingClient(RoutingClient):
     def __init__(self, client_timeout=40):
         """
         :param client_timeout: timeout for the request
         """
         self.client_timeout = client_timeout
 
-    def get_journey(self, from_lat, from_lon, to_lat, to_lon, time, modes):
+    def get_journey(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
+                    modes: list[fptf.Mode]) -> fptf.Journey | None:
         """
         This function queries the Bifrost API and returns the itineraries
 
@@ -17,7 +21,7 @@ class BifrostRouter(Router):
         :param from_lon: longitude of the starting point
         :param to_lat: latitude of the destination
         :param to_lon: longitude of the destination
-        :param time: departure time as datetime object
+        :param departure: departure time as datetime object
         :param modes: the fptf modes to use for routing
 
         :return: list of fptf journeys
@@ -39,8 +43,8 @@ class BifrostRouter(Router):
         req = {
             "origin": origin,
             "destination": destination,
-            "modes": modes,
-            "departureTime": time.isoformat()
+            "modes": [mode.to_string() for mode in modes],
+            "departureTime": departure.isoformat()
         }
 
         headers = {
@@ -55,4 +59,4 @@ class BifrostRouter(Router):
             print(response.text)
             return None
 
-        return response.json()
+        return fptf.journey_from_json(response.json())

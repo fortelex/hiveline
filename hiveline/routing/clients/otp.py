@@ -3,17 +3,18 @@ import datetime
 import requests
 
 import hiveline.routing.fptf as fptf
-from hiveline.routing.routers.router import Router
+from hiveline.routing.clients.routing_client import RoutingClient
 
 
-class OpenTripPlannerRouter(Router):
+class OpenTripPlannerRoutingClient(RoutingClient):
     def __init__(self, client_timeout=40):
         """
         :param client_timeout: timeout for the request
         """
         self.client_timeout = client_timeout
 
-    def get_journey(self, from_lat, from_lon, to_lat, to_lon, departure, modes):
+    def get_journey(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
+                    modes: list[fptf.Mode]) -> fptf.Journey | None:
         """
         This function queries the OTP GraphQL endpoint and returns the itineraries
 
@@ -45,8 +46,11 @@ class OpenTripPlannerRouter(Router):
                 otp_modes.append("SUBWAY")
                 otp_modes.append("CABLE_CAR")
                 otp_modes.append("FUNICULAR")
-                otp_modes.append("GONDOLA")
                 otp_modes.append("MONORAIL")
+            elif mode == fptf.Mode.GONDOLA:
+                otp_modes.append("GONDOLA")
+            elif mode == fptf.Mode.AIRCRAFT:
+                otp_modes.append("AIRPLANE")
             elif mode == fptf.Mode.WATERCRAFT:
                 otp_modes.append("FERRY")
             elif mode == fptf.Mode.TAXI:
@@ -291,5 +295,5 @@ class OtpRoute:
 
 
 if __name__ == "__main__":
-    OpenTripPlannerRouter().get_journey(52.520008, 13.404954, 52.516667, 13.383333, datetime.datetime.now(),
-                                        ["WALK", "TRANSIT"])
+    OpenTripPlannerRoutingClient().get_journey(52.520008, 13.404954, 52.516667, 13.383333, datetime.datetime.now(),
+                                               ["WALK", "TRANSIT"])

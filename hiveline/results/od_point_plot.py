@@ -2,7 +2,7 @@ import os.path
 
 import folium
 
-from mongo.db import get_database
+from hiveline.mongo.db import get_database
 
 from vc import vc_extract
 

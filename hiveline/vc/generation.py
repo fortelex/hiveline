@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from hiveline.od.place import Place
 from hiveline.mongo.db import get_database, get_place_id
-from vc.vcgenerator import VirtualCommuterGenerator
+from hiveline.vc.vcgenerator import VirtualCommuterGenerator
 
 
 def create_simulation(place_name, pivot_date, num_virtual_commuters=2000, sim_id=None, db=None, use_parking=False,
@@ -39,8 +39,9 @@ def create_simulation(place_name, pivot_date, num_virtual_commuters=2000, sim_id
     print('Simulation inserted to mongo')
 
     # Virtual commuter generator
-    city = Place(place_name)
-    vc_gen = VirtualCommuterGenerator(city)
+    year = pivot_date.year #TODO
+    city = Place(place_name, year)
+    vc_gen = VirtualCommuterGenerator(city, year)
 
     print(f'Generating {num_virtual_commuters} virtual commuters')
 

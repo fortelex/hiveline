@@ -18,10 +18,10 @@ from datetime import datetime, timedelta
 
 import pymongo.errors
 
-import routing.otp as otp
-import routing.otp_builder as builder
+import hiveline.routing.otp as otp
+import hiveline.routing.otp_builder as builder
 from hiveline.mongo.db import get_database
-import vc.vc_extract as vc_extract
+import hiveline.vc.vc_extract as vc_extract
 
 
 def __reset_jobs(db, sim_id):

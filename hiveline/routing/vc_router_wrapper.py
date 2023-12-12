@@ -7,7 +7,7 @@ if __name__ == "__main__":
     load_dotenv()
     sys.path.append(os.getenv("PROJECT_PATH"))
 
-import routing.config as config
+import hiveline.routing.config as config
 
 import subprocess
 

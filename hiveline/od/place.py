@@ -26,7 +26,7 @@ def only_geo_polygons(gdf):
 
 class Place():
 
-    def __init__(self, place_name: str):
+    def __init__(self, place_name: str, year: int):
         '''
         Initialize the place object, load geographical shape and tiling
         Args:

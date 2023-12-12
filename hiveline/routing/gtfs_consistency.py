@@ -4,7 +4,7 @@ import shutil
 import pandas as pd
 import zipfile
 
-import routing.config as config
+import hiveline.routing.config as config
 
 
 def unzip_gtfs(zip_path, unzip_path):

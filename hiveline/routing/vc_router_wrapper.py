@@ -49,7 +49,7 @@ def route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False, 
 
     try:
         # Start the process and pipe its output to the main console
-        process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        process = subprocess.Popen(args, shell=True)
 
         # Wait for the process to complete
         process.wait()
@@ -57,7 +57,8 @@ def route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False, 
         print("[WRAPPER] Routing algorithm for sim_id %s finished" % sim_id)
 
     except Exception as e:
-        process.kill()
+        #process.kill()
+        print(e)
         print("[WRAPPER] Routing algorithm for sim_id %s killed" % sim_id)
 
 

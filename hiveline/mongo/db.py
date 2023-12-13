@@ -53,6 +53,17 @@ def df_to_mongo(db, collection, df):
     d = df_to_dict(df)
     push_to_collection(db, collection, d)
 
+def is_number(string):
+    # checks if a string is composed of digits
+    return all(char.isdigit() for char in string)
+
+def transform_from_mongo_extract_year(df):
+    # get the year field
+    year = [c for c in df.columns if is_number(c)][0]
+    # extract everything inside the year field 
+    df = pd.concat([df, pd.DataFrame.from_records(df[year].to_list())], axis=1)
+    df = df.drop(columns=year)
+    return df
 
 def transform_tiles_from_mongo(df):
     '''
@@ -60,6 +71,7 @@ def transform_tiles_from_mongo(df):
     Args:
         df (pd.DataFrame): the df coming directly from mongo, that needs to be transformed
     '''
+    df = transform_from_mongo_extract_year(df)
     if 'work' in df.columns:
         prefix = 'work'
     elif 'parking' in df.columns:
@@ -77,6 +89,7 @@ def transform_regions_from_mongo(df):
     '''
     Transform the demographic data from mongodb to convert it back to a dataframe
     '''
+    df = transform_from_mongo_extract_year(df)
     prefixes = [c for c in df.columns if c in ['age', 'vehicle', 'employment_rate', 'employment_type']]
     # extract the sub dicts
     df = pd.concat([df] + [pd.DataFrame.from_records(df[p].to_list()).add_prefix(p + '_') for p in prefixes], axis=1)

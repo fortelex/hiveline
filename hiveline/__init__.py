@@ -1,5 +1,4 @@
 from hiveline.mongo.db import get_database, get_place_id
-
 from hiveline.routing.resource_loader import create_place_resources
 from hiveline.routing.otp_builder import build_graph
 from hiveline.routing.vc_router_wrapper import route_virtual_commuters

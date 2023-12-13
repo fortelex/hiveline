@@ -6,17 +6,18 @@ import hiveline.mongo.db as mongo
 
 class Stats():
 
-    def __init__(self, place, year):
+    def __init__(self, place):
         '''
         Initialization, create empty DataFrame and list of involved regions
         Args:
-            place (Place): a place for which demogrphic statistics will be computed 
+            place (Place): a place for which demographic statistics will be computed 
             year (str): the year to study
         '''
         if not 'nuts3' in place.data.columns:
             place.load_regions()
         self.regions = place.data['nuts3'].unique().tolist()
-        self.stat_loader = EurostatLoader(year=year, nuts_ids=self.regions)
+        self.year = place.year
+        self.stat_loader = EurostatLoader(year=self.year, nuts_ids=self.regions)
         self.demographic = pd.DataFrame({'nuts3': self.regions})
         # prefixes for categories containing several values
         self.prefixes = ['age', 'vehicle', 'employment_rate', 'employment_type']
@@ -64,9 +65,11 @@ class Stats():
         # 2 wrappers are needed to pass arguments to the decorator
         def wrapper1(loading_function):
             def wrapper2(self): 
+                fields_year = [self.year+'.'+f for f in fields]
                 # search fields in mongo, only for place regions
+                # extract list of region ids
                 match_ids = self.demographic[match_field_list[0]].to_list()
-                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields)
+                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields_year)
                 # call loading function if the search result is empty or incomplete
                 if result_df.empty or len(result_df)!=len(match_ids):
                     print('Data not in db, computing')
@@ -123,6 +126,8 @@ class Stats():
         self.load_employment_rate()
         self.load_employment_type()
         #self.load_income()
+        
+        self.export_to_mongo()
 
     def export_to_mongo(self):
         '''
@@ -134,11 +139,10 @@ class Stats():
         for d in df_array:
             formatted = {
                 '_id': d['nuts3'],
-                'income': d['household_income'],
             }
             # form sub dicts with prefix as key and all field names containing the prefix as values
             subdicts = {p: {k.replace(p+'_',''): v for k,v in d.items() if p in k} for p in self.prefixes}
-            formatted.update(subdicts)
+            formatted.update({self.year: subdicts})
             export_array.append(formatted)
 
         mongo.push_to_collection(self.mongo_db, self.mongo_collection, export_array)

@@ -3,30 +3,12 @@ import hashlib
 import os
 import urllib.request
 
-import bson
-
 from hiveline.routing import gtfs_consistency
 from hiveline.routing.servers.routing_server import RoutingServerConfig
 from hiveline.routing.util import ensure_directory
 
-type Link = {
-    "link": str,
-    "date": datetime
-}
 
-type PlaceResource = {
-    "_id": bson.ObjectId,
-    "place-id": bson.ObjectId | str | list[bson.ObjectId | str],
-    "osm": list[Link],
-    "gtfs": {
-        str: list[Link]
-    },
-    "geofabrik": str,
-    "transitfeed": str
-}
-
-
-def build_resources(data_dir: str, place: PlaceResource, target_date: datetime.date) -> RoutingServerConfig:
+def build_resources(data_dir: str, place, target_date: datetime.date) -> RoutingServerConfig:
     """
     Builds the graph for the given place and target date. If the graph already exists, it will not be rebuilt, unless
     force_rebuild=True.
@@ -53,7 +35,7 @@ def build_resources(data_dir: str, place: PlaceResource, target_date: datetime.d
     return RoutingServerConfig(graph_id, target_date, data_dir, gtfs_files, osm_files)
 
 
-def __get_closest_link(link_list: list[Link], target_date: datetime.date, ignore_future: bool = False):
+def __get_closest_link(link_list, target_date: datetime.date, ignore_future: bool = False):
     """
     Returns the link that is closest to the target date.
     :param link_list: A list of objects, each with a link and a date
@@ -82,7 +64,7 @@ def __get_closest_link(link_list: list[Link], target_date: datetime.date, ignore
     return link_list[min_dist_index]
 
 
-def __ensure_data_downloaded(data_dir: str, link_object: Link, file_name_extension: str):
+def __ensure_data_downloaded(data_dir: str, link_object, file_name_extension: str):
     """
     Ensures that the data file is downloaded.
     :param data_dir: The directory where the data should be stored

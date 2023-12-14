@@ -2,9 +2,42 @@ import datetime
 import json
 from enum import Enum
 
-def remove_empty_keys(d):
+supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z']  # first will be used for formatting
+
+
+def _remove_empty_keys(d):
     """ Remove keys with None or empty values from a dictionary. """
     return {k: v for k, v in d.items() if v}
+
+
+def _read_datetime(time_str):
+    """
+    Reads a time string in the RFC3339 format and returns a datetime.datetime object.
+    :param time_str: The time string.
+    :return: The datetime.datetime object.
+    """
+    if not time_str:
+        return None
+    for format in supported_formats:
+        try:
+            return datetime.datetime.strptime(time_str, format)
+        except ValueError:
+            pass
+
+    print("Could not parse time string: " + time_str)
+    return None
+
+
+def _format_datetime(dt):
+    """
+    Formats a datetime.datetime object into a time string in the RFC3339 format.
+    :param dt: The datetime.datetime object.
+    :return: The time string.
+    """
+    if not dt:
+        return None
+    return dt.strftime(supported_formats[0])
+
 
 class Location:
     """
@@ -21,7 +54,7 @@ class Location:
         self.altitude = altitude
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'name': self.name,
             'address': self.address,
@@ -39,12 +72,14 @@ class Location:
         return location_from_json(data)
 
 
-
-def location_from_json(data):
+def location_from_json(data: dict | str | None):
     """
     Creates a Location object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Location(name=data)
 
@@ -71,7 +106,7 @@ class Station:
         self.regions = regions or []
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'name': self.name,
@@ -88,11 +123,14 @@ class Station:
         return station_from_json(data)
 
 
-def station_from_json(data):
+def station_from_json(data: dict | str | None):
     """
     Creates a Station object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Station(data, data)
 
@@ -118,7 +156,7 @@ class Stop:
         self.location = location
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'station': self.station.to_dict() if self.station else None,
@@ -135,13 +173,16 @@ class Stop:
         return stop_from_json(data)
 
 
-def stop_from_json(data):
+def stop_from_json(data: dict | str | None):
     """
     Creates a Stop object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
-        return Station(data, data, data)
+        return Station(data, data, location_from_json(data))
 
     return Stop(
         id=data['id'] if 'id' in data else None,
@@ -151,7 +192,10 @@ def stop_from_json(data):
     )
 
 
-def place_from_json(data):
+def place_from_json(data: dict | str | None):
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Station(id=data, name=data)
 
@@ -167,6 +211,24 @@ def place_from_json(data):
         return stop_from_json(data)
 
 
+def get_location(place: Location | Station | Stop) -> Location | None:
+    """
+    Returns the location of a place.
+    :param place: The place.
+    :return: The location.
+    """
+    if isinstance(place, Location):
+        return place
+    elif isinstance(place, Station):
+        return place.location
+    elif isinstance(place, Stop):
+        if place.location:
+            return place.location
+        elif place.station:
+            return place.station.location
+    return None
+
+
 class Region:
     """
     Represents a region in the public transport system.
@@ -180,7 +242,7 @@ class Region:
         self.stations = stations
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'name': self.name,
@@ -196,11 +258,14 @@ class Region:
         return region_from_json(data)
 
 
-def region_from_json(data):
+def region_from_json(data: dict | str | None):
     """
     Creates a Region object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Region(data, data)
 
@@ -239,6 +304,9 @@ class Mode(Enum):
     def to_string(self):
         return self.mode
 
+    def to_json(self):
+        return json.dumps(self.mode)
+
     @staticmethod
     def from_string(mode):
         if mode == 'train':
@@ -274,7 +342,7 @@ class Operator:
         self.name = name
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'name': self.name
@@ -289,11 +357,14 @@ class Operator:
         return operator_from_json(data)
 
 
-def operator_from_json(data):
+def operator_from_json(data: dict | str | None):
     """
     Creates an Operator object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Operator(data, data)
 
@@ -309,7 +380,7 @@ class Line:
     A line is a set of routes operated by a public transport agency.
     """
 
-    def __init__(self, id: str, name: str, mode: Mode, routes: list, operator: Operator, sub_mode: str = None):
+    def __init__(self, id: str, name: str, mode: Mode, routes: list, operator: Operator = None, sub_mode: str = None):
         self.type = 'line'
         self.id = id
         self.name = name
@@ -319,7 +390,7 @@ class Line:
         self.operator = operator
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'name': self.name,
@@ -338,11 +409,14 @@ class Line:
         return line_from_json(data)
 
 
-def line_from_json(data):
+def line_from_json(data: dict | str | None):
     """
     Creates a Line object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Line(data, data, Mode.UNKNOWN, [], None)
 
@@ -371,7 +445,7 @@ class Route:
         self.stops = stops
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'line': self.line.to_dict() if self.line else None,
@@ -384,13 +458,16 @@ class Route:
         return json.dumps(self.to_dict())
 
 
-def route_from_json(data):
+def route_from_json(data: dict | str | None):
     """
     Creates a Route object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
-        return Route(data, None, None, [])
+        return Route(data, line_from_json(data), Mode.UNKNOWN, [])
 
     return Route(
         id=data['id'] if 'id' in data else None,
@@ -411,7 +488,7 @@ class ScheduleSequenceElement:
         self.departure = departure
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'arrival': self.arrival,
             'departure': self.departure
         })
@@ -442,7 +519,7 @@ class Schedule:
         self.starts = starts
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'route': self.route.to_dict() if self.route else None,
@@ -461,13 +538,15 @@ class Schedule:
         return schedule_from_json(data)
 
 
-def schedule_from_json(data):
+def schedule_from_json(data: dict | str | None):
     """
     Creates a Schedule object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
     if isinstance(data, str):
-        return Schedule(data, None, None, [], None)
+        return Schedule(data, route_from_json(data), Mode.UNKNOWN, [], None)
     return Schedule(
         id=data['id'] if 'id' in data else None,
         route=route_from_json(data['route']) if 'route' in data else None,
@@ -498,13 +577,13 @@ class Stopover:
         self.departure_platform = departure_platform
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'stop': self.stop.to_dict() if self.stop else None,
-            'arrival': self.arrival.isoformat(),
+            'arrival': _format_datetime(self.arrival) if self.arrival else None,
             'arrivalDelay': self.arrival_delay,
             'arrivalPlatform': self.arrival_platform,
-            'departure': self.departure.isoformat(),
+            'departure': _format_datetime(self.departure) if self.departure else None,
             'departureDelay': self.departure_delay,
             'departurePlatform': self.departure_platform
         })
@@ -518,20 +597,23 @@ class Stopover:
         return stopover_from_json(data)
 
 
-def stopover_from_json(data):
+def stopover_from_json(data: dict | str | None):
     """
     Creates a Stopover object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Stopover(stop=Station(data, data))
 
     return Stopover(
         stop=stop_from_json(data['stop']) if 'stop' in data else None,
-        arrival=datetime.datetime.fromisoformat(data['arrival']) if 'arrival' in data else None,
+        arrival=_read_datetime(data['arrival']) if 'arrival' in data else None,
         arrival_delay=data['arrivalDelay'] if 'arrivalDelay' in data else None,
         arrival_platform=data['arrivalPlatform'] if 'arrivalPlatform' in data else None,
-        departure=datetime.datetime.fromisoformat(data['departure']) if 'departure' in data else None,
+        departure=_read_datetime(data['departure']) if 'departure' in data else None,
         departure_delay=data['departureDelay'] if 'departureDelay' in data else None,
         departure_platform=data['departurePlatform'] if 'departurePlatform' in data else None
     )
@@ -552,7 +634,7 @@ class Price:
         self.currency = currency
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'amount': self.amount,
             'currency': self.currency
         })
@@ -566,11 +648,14 @@ class Price:
         return price_from_json(data)
 
 
-def price_from_json(data):
+def price_from_json(data: dict | str | None):
     """
     Creates a Price object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     return Price(
         amount=data['amount'] if 'amount' in data else None,
         currency=data['currency'] if 'currency' in data else None
@@ -628,12 +713,12 @@ class Leg:
         self.price = price
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'origin': self.origin.to_dict() if self.origin else None,
             'destination': self.destination.to_dict() if self.destination else None,
-            'departure': self.departure.isoformat(),
-            'arrival': self.arrival.isoformat(),
+            'departure': _format_datetime(self.departure) if self.departure else None,
+            'arrival': _format_datetime(self.arrival) if self.arrival else None,
             'mode': self.mode.to_string(),
             'subMode': self.sub_mode,
             'departureDelay': self.departure_delay,
@@ -658,16 +743,19 @@ class Leg:
         return leg_from_json(data)
 
 
-def leg_from_json(data):
+def leg_from_json(data: dict | str | None):
     """
     Creates a Leg object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     return Leg(
         origin=place_from_json(data['origin']) if 'origin' in data else None,
         destination=place_from_json(data['destination']) if 'destination' in data else None,
-        departure=datetime.datetime.fromisoformat(data['departure']) if 'departure' in data else None,
-        arrival=datetime.datetime.fromisoformat(data['arrival']) if 'arrival' in data else None,
+        departure=_read_datetime(data['departure']) if 'departure' in data else None,
+        arrival=_read_datetime(data['arrival']) if 'arrival' in data else None,
         mode=Mode.from_string(data['mode']) if 'mode' in data else None,
         sub_mode=data['subMode'] if 'subMode' in data else None,
         departure_delay=data['departureDelay'] if 'departureDelay' in data else None,
@@ -697,7 +785,7 @@ class Journey:
         self.price = price
 
     def to_dict(self):
-        return remove_empty_keys({
+        return _remove_empty_keys({
             'type': self.type,
             'id': self.id,
             'legs': [l.to_dict() for l in self.legs] if self.legs else None,
@@ -713,11 +801,14 @@ class Journey:
         return journey_from_json(data)
 
 
-def journey_from_json(data):
+def journey_from_json(data: dict | str | None):
     """
     Creates a Journey object from a JSON object.
     :param data: The JSON dict.
     """
+    if data is None:
+        return None
+
     if isinstance(data, str):
         return Journey(data, [])
 
@@ -728,12 +819,14 @@ def journey_from_json(data):
     )
 
 
-def from_json(data):
+def from_json(data: dict | str | None):
     """
     Creates an FPTF object from a JSON object, depending on data type.
     :param data: The JSON dict.
     :return: The FPTF object.
     """
+    if data is None:
+        return None
     if isinstance(data, list):
         return [from_json(d) for d in data]
     elif isinstance(data, str):

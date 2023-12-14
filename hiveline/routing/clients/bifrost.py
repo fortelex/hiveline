@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import requests
 from .routing_client import RoutingClient
@@ -40,11 +41,14 @@ class BifrostRoutingClient(RoutingClient):
             "longitude": to_lon
         }
 
+        # set time zone to CET
+        departure = departure.astimezone(datetime.timezone(datetime.timedelta(hours=1)))
+
         req = {
             "origin": origin,
             "destination": destination,
             "modes": [mode.to_string() for mode in modes],
-            "departureTime": departure.isoformat()
+            "departure": departure.isoformat()
         }
 
         headers = {
@@ -59,4 +63,6 @@ class BifrostRoutingClient(RoutingClient):
             print(response.text)
             return None
 
-        return fptf.journey_from_json(response.json())
+        result = response.json()
+
+        return fptf.journey_from_json(result)

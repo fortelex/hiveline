@@ -70,7 +70,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
     parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
                                                                                                        'force a rebuild of the graph or not')
-    parser.add_argument('--memory', dest='server_gb', type=int, default=4, help='The amount of memory to '
+    parser.add_argument('--memory', dest='memory_gb', type=int, default=4, help='The amount of memory to '
                                                                                 'use for the server and client (in GB)')
     parser.add_argument('--num-threads', dest='num_threads', type=int, default=4, help='The number of threads to use '
                                                                                        'for sending route requests to the server')
@@ -84,4 +84,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     route_virtual_commuters(args.sim_id, args.profile, args.data_dir, not args.no_delays, args.force_graph_rebuild,
-                            args.server_gb, args.num_threads, args.reset_jobs, args.reset_failed, args.timeout)
+                            args.memory_gb, args.num_threads, args.reset_jobs, args.reset_failed, args.timeout)

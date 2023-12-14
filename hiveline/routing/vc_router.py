@@ -3,7 +3,7 @@ import math
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+import datetime
 
 import pymongo.errors
 
@@ -86,7 +86,7 @@ def __create_route_calculation_jobs(db, sim_id):
     for doc in result:
         vc_id = doc["vc-id"]
         sim_id = doc["sim-id"]
-        created = datetime.now()
+        created = datetime.datetime.now()
 
         job = {
             "vc-id": vc_id,
@@ -114,7 +114,7 @@ def __reset_timed_out_jobs(db):
     jobs_coll.update_many({
         "status": "running",
         "started": {
-            "$lt": datetime.now() - timedelta(minutes=5)
+            "$lt": datetime.datetime.now() - datetime.timedelta(minutes=5)
         }
     }, {
         "$set": {
@@ -123,7 +123,27 @@ def __reset_timed_out_jobs(db):
     })
 
 
-def __get_route_option(client: RoutingClient, vc, sim, modes):
+class RouteResult:
+    def __init__(self, route_option_id: str, origin: list, destination: list, departure: datetime.datetime,
+                 modes: list[fptf.Mode], journey: fptf.Journey):
+        self.id = route_option_id
+        self.origin = origin
+        self.destination = destination
+        self.departure = departure
+        self.modes = modes
+        self.journey = journey
+
+    def to_dict(self):
+        return {
+            "origin": self.origin,
+            "destination": self.destination,
+            "departure": self.departure,
+            "modes": [mode.to_string() for mode in self.modes],
+            "journey": self.journey.to_dict()
+        }
+
+
+def __get_route_result(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> RouteResult | None:
     """
     Get a route for a virtual commuter.
     :param client: The routing client
@@ -132,7 +152,6 @@ def __get_route_option(client: RoutingClient, vc, sim, modes):
     :param modes: The modes to use
     :return:
     """
-    # TODO: switch to fptf
     origin = vc_extract.extract_origin_loc(vc)
     destination = vc_extract.extract_destination_loc(vc)
     departure = vc_extract.extract_departure(vc, sim)
@@ -142,17 +161,10 @@ def __get_route_option(client: RoutingClient, vc, sim, modes):
     if journey is None:
         return None
 
-    return {
-        "route-option-id": str(uuid.uuid4()),
-        "origin": origin,
-        "destination": destination,
-        "departure": departure,
-        "modes": modes,
-        "journey": journey
-    }
+    return RouteResult(str(uuid.uuid4()), origin, destination, departure, modes, journey)
 
 
-def __route_virtual_commuter(client, vc, sim):
+def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list[RouteResult]:
     """
     Route a virtual commuter. It will calculate available mode combinations and then calculate routes for each of them.
     :param client: The routing client
@@ -165,13 +177,13 @@ def __route_virtual_commuter(client, vc, sim):
     #  if vc_extract.has_motor_vehicle(vc):
     mode_combinations += [[fptf.Mode.WALKING, fptf.Mode.CAR]]
 
-    options = [__get_route_option(client, vc, sim, modes) for modes in mode_combinations]
+    options = [__get_route_result(client, vc, sim, modes) for modes in mode_combinations]
     options = [option for option in options if option is not None]
 
     return options
 
 
-def __approx_dist(origin, destination):
+def __approx_dist(origin: fptf.Location, destination: fptf.Location):
     """
     Approximate the distance between two points in meters using the Haversine formula.
 
@@ -181,10 +193,10 @@ def __approx_dist(origin, destination):
     """
 
     # Convert latitude and longitude from degrees to radians
-    lon1 = math.radians(origin["lon"])
-    lat1 = math.radians(origin["lat"])
-    lon2 = math.radians(destination["lon"])
-    lat2 = math.radians(destination["lat"])
+    lon1 = math.radians(origin.longitude)
+    lat1 = math.radians(origin.latitude)
+    lon2 = math.radians(destination.longitude)
+    lat2 = math.radians(destination.latitude)
 
     # Radius of the Earth in kilometers
     r = 6371.0
@@ -206,23 +218,23 @@ def __approx_dist(origin, destination):
     return distance_meters
 
 
-def __extract_mode_data(leg):
+def __extract_mode_data(leg: fptf.Leg):
     """
     Extract relevant data from a leg.
     :param leg: The trip leg of an itinerary
     :return: an object with mode, duration (in seconds) and distance (in meters)
     """
-    mode = leg["mode"].lower()
-    start_time = leg["startTime"]
-    if "rtStartTime" in leg:
-        start_time = leg["rtStartTime"]
-    end_time = leg["endTime"]
-    if "rtEndTime" in leg:
-        end_time = leg["rtEndTime"]
-    duration = (end_time - start_time) / 1000
+    mode = leg.mode.to_string()
+    departure = leg.departure
+    if leg.departure_delay:
+        departure += datetime.timedelta(seconds=leg.departure_delay)
+    arrival = leg.arrival
+    if leg.arrival_delay:
+        arrival += datetime.timedelta(seconds=leg.arrival_delay)
+    duration = (arrival - departure).total_seconds()
 
-    origin = leg["from"]
-    destination = leg["to"]
+    origin = fptf.get_location(leg.origin)
+    destination = fptf.get_location(leg.destination)
 
     # TODO: distance can be better calculated using stopovers
     distance = __approx_dist(origin, destination)
@@ -234,46 +246,40 @@ def __extract_mode_data(leg):
     }
 
 
-def __extract_relevant_data(route_details):
+def __extract_relevant_data(route_result: RouteResult):
     """
     Extract relevant data from a route details object.
 
-    :param route_details: Route details. The output of __get_route_option
+    :param route_result: Route details. The output of __get_route_option
     :return: An object with route-option-id, route-duration (in s), route-changes, route-delay (in s),
              route-recalculated, modes (array of objects with mode, duration (in s) and distance (in m))
     """
-    itinerary = route_details["itineraries"][0]
-    start_time = itinerary["startTime"]
-    end_time = itinerary["endTime"]
-    actual_end_time = end_time
-    if "rtEndTime" in itinerary:
-        actual_end_time = itinerary["rtEndTime"]
+    journey = route_result.journey
+    departure = journey.legs[0].departure
+    arrival = journey.legs[-1].arrival
+    delay = journey.legs[-1].arrival_delay
+    if delay is None:
+        delay = 0
 
-    delay = (actual_end_time - end_time) / 1000
-    duration = (actual_end_time - start_time) / 1000
+    duration = (arrival - departure + datetime.timedelta(seconds=delay)).total_seconds()
 
     changes = -1
 
-    for leg in itinerary["legs"]:
-        if leg["mode"] == "WALK":
+    for leg in journey.legs:
+        if leg.mode == fptf.Mode.WALKING:
             continue
         changes += 1
 
     if changes == -1:
         changes = 0
 
-    modes = [__extract_mode_data(leg) for leg in itinerary["legs"]]
-
-    recalc_count = 0
-    if "recalcCount" in itinerary:
-        recalc_count = itinerary["recalcCount"]
+    modes = [__extract_mode_data(leg) for leg in journey.legs]
 
     return {
-        "route-option-id": route_details["route-option-id"],
+        "route-option-id": route_result.id,
         "route-duration": duration,
         "route-changes": changes,
         "route-delay": delay,
-        "route-recalculations": recalc_count,
         "modes": modes
     }
 
@@ -293,8 +299,8 @@ def __process_virtual_commuter(client, route_results_coll, route_options_coll, v
     route_results = {
         "vc-id": vc["vc-id"],
         "sim-id": vc["sim-id"],
-        "created": datetime.now(),
-        "options": options,
+        "created": datetime.datetime.now(),
+        "options": [option.to_dict() for option in options],
         "meta": meta
     }
 
@@ -309,7 +315,7 @@ def __process_virtual_commuter(client, route_results_coll, route_options_coll, v
     route_options = {
         "vc-id": vc["vc-id"],
         "sim-id": vc["sim-id"],
-        "created": datetime.now(),
+        "created": datetime.datetime.now(),
         "traveller": vc_extract.extract_traveller(vc),
         "options": [__extract_relevant_data(option) for option in options],
     }
@@ -349,7 +355,7 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
         }, {
             "$set": {
                 "status": "running",
-                "started": datetime.now()
+                "started": datetime.datetime.now()
             }
         })
 
@@ -363,38 +369,39 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
             print("Progress: ~{:.2f}% {:}".format(percentage * progress_fac, job["vc-id"]))
             last_print = current_time
 
-        try:
-            vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
+        # todo
+        # try:
+        vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
 
-            should_route = vc_extract.should_route(vc)
+        should_route = vc_extract.should_route(vc)
 
-            if should_route:
-                __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta)
+        if should_route:
+            __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta)
 
-            # set status to finished
-            jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.now()}})
-        except Exception as e:
-            short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
-                                + str(e)
+        # set status to finished
+        jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.datetime.now()}})
+        # except Exception as e:
+        #     short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
+        #                         + str(e)
+        #
+        #     print(short_description)
+        #
+        #     # set status to failed
+        #     jobs_coll.update_one({"_id": job["_id"]},
+        #                          {"$set": {"status": "error", "error": short_description, "finished": datetime.datetime.now()}})
+        #
+        #     consecutive_error_number += 1
+        #
+        #     if consecutive_error_number >= 5:
+        #         print("Too many consecutive errors, stopping")
+        #         raise e
 
-            print(short_description)
 
-            # set status to failed
-            jobs_coll.update_one({"_id": job["_id"]},
-                                 {"$set": {"status": "error", "error": short_description, "finished": datetime.now()}})
-
-            consecutive_error_number += 1
-
-            if consecutive_error_number >= 5:
-                print("Too many consecutive errors, stopping")
-                raise e
-
-
-def __spawn_job_pull_threads(client: RoutingClient, db, sim, meta, num_threads=4, client_timeout=40):
+def __spawn_job_pull_threads(client: RoutingClient, db, sim, meta, num_threads=4):
     threads = []
 
     for i in range(num_threads):
-        t = threading.Thread(target=__iterate_jobs, args=(client, db, sim, meta, i == 0, num_threads, client_timeout))
+        t = threading.Thread(target=__iterate_jobs, args=(client, db, sim, meta, i == 0, num_threads))
         t.start()
         threads.append(t)
 
@@ -456,20 +463,16 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
         "uses-delay-simulation": use_delays
     }
 
-    proc = server.start(config, server_files)
-
-    if proc is None:
-        print("Server not started")
-        exit(1)
+    server.start(config, server_files)
 
     try:
         print("Server started")
 
-        t = datetime.now()
+        t = datetime.datetime.now()
 
         __spawn_job_pull_threads(client, db, sim, meta, num_threads)
 
-        print("Finished routing algorithm in " + str(datetime.now() - t))
+        print("Finished routing algorithm in " + str(datetime.datetime.now() - t))
 
     finally:
         server.stop()
@@ -477,7 +480,8 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
         print("Server stopped")
 
 
-def __get_profile_without_delay(profile_str: str, memory_gb: int = 4, api_timeout=10, client_timeout=20) -> [
+def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4, api_timeout=10,
+                                client_timeout=20) -> [
     RoutingServer, RoutingClient]:
     if profile_str == "opentripplanner":
         from hiveline.routing.servers.otp import OpenTripPlannerRoutingServer
@@ -489,15 +493,15 @@ def __get_profile_without_delay(profile_str: str, memory_gb: int = 4, api_timeou
         from hiveline.routing.servers.bifrost import BifrostRoutingServer
         from hiveline.routing.clients.bifrost import BifrostRoutingClient
 
-        return BifrostRoutingServer(), BifrostRoutingClient(client_timeout=client_timeout)
+        return BifrostRoutingServer(threads=threads), BifrostRoutingClient(client_timeout=client_timeout)
 
     raise Exception("Unknown profile: " + profile_str)
 
 
-def __get_profile(profile_str: str, use_delays: bool = False, memory_gb: int = 4, api_timeout=10,
+def __get_profile(profile_str: str, use_delays: bool = False, threads=12, memory_gb: int = 4, api_timeout=10,
                   client_timeout=20) -> [RoutingServer, RoutingClient]:
-    [server, client] = __get_profile_without_delay(profile_str, memory_gb=memory_gb, api_timeout=api_timeout,
-                                                   client_timeout=client_timeout)
+    [server, client] = __get_profile_without_delay(profile_str, threads=threads, memory_gb=memory_gb,
+                                                   api_timeout=api_timeout, client_timeout=client_timeout)
     if use_delays:
         return server, DelayedRoutingClient(client)
     return server, client
@@ -513,7 +517,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-delays', dest='no_delays', action='store_true', help='Whether to use delays or not')
     parser.add_argument('--force-graph-rebuild', dest='force_graph_rebuild', action='store_true', help='Whether to '
                                                                                                        'force a rebuild of the graph or not')
-    parser.add_argument('--memory', dest='server_gb', type=int, default=4, help='The amount of memory to '
+    parser.add_argument('--memory', dest='memory_db', type=int, default=4, help='The amount of memory to '
                                                                                 'use for the server and client (in GB)')
     parser.add_argument('--num-threads', dest='num_threads', type=int, default=4, help='The number of threads to use '
                                                                                        'for sending route requests to the server')
@@ -527,8 +531,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     profile_server, profile_client = __get_profile(args.profile, use_delays=not args.no_delays,
+                                                   threads=args.num_threads,
                                                    memory_gb=args.memory_db, api_timeout=args.timeout / 2,
-                                                   client_timeout=args.api_timeout)
+                                                   client_timeout=args.timeout)
 
     __route_virtual_commuters(profile_server, profile_client, args.sim_id, data_dir=args.data_dir,
                               use_delays=not args.no_delays,

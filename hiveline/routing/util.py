@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 
 def ensure_directory(path):
@@ -8,7 +9,7 @@ def ensure_directory(path):
     :return:
     """
     if not os.path.isdir(path):
-        os.mkdir(path)
+        pathlib.Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def wait_for_line(process, line_to_wait_for):
@@ -22,7 +23,8 @@ def wait_for_line(process, line_to_wait_for):
     while True:
         line = process.stdout.readline()
         if not line:
-            break
+            raise Exception("Process ended unexpectedly")
+        print(line)
         decoded_line = line.strip()
         if line_to_wait_for in decoded_line:
             return

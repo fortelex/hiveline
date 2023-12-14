@@ -1,10 +1,13 @@
 import os
 
+import dotenv
 import pandas as pd
 from pymongo import MongoClient, UpdateOne
 
 
 def get_database():
+    dotenv.load_dotenv()
+
     user = os.getenv("UP_MONGO_USER")
     password = os.getenv("UP_MONGO_PASSWORD")
     domain = os.getenv("UP_MONGO_DOMAIN")

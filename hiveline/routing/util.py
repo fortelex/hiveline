@@ -28,3 +28,19 @@ def wait_for_line(process, line_to_wait_for):
         decoded_line = line.strip()
         if line_to_wait_for in decoded_line:
             return
+
+
+def iterate_output(process, debug=False):
+    """
+    Print the output of a process to the console
+
+    :param process: the process
+    :param debug: whether to print the output or not
+    :return:
+    """
+    while True:
+        line = process.stdout.readline()
+        if not line:
+            break
+        if debug:
+            print(line)

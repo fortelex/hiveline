@@ -3,14 +3,16 @@ import os
 import platform
 import subprocess
 import sys
+import threading
+import time
 import urllib.request
 
 from hiveline.routing.servers.routing_server import RoutingServer, RoutingServerConfig
-from hiveline.routing.util import ensure_directory, wait_for_line
+from hiveline.routing.util import ensure_directory, wait_for_line, iterate_output
 
 
 class BifrostRoutingServer(RoutingServer):
-    def __init__(self, threads=12):
+    def __init__(self, threads=12, debug=False):
         self.version = "1.0.3"
         self.threads = threads
         self.file_name = "server-" + self.version
@@ -19,6 +21,8 @@ class BifrostRoutingServer(RoutingServer):
             self.file_name += ".exe"
             self.download_url += ".exe"
         self.process = None  # instantiated when server is started
+        self.debug_thread: threading.Thread | None = None
+        self.debug = debug
 
     def build(self, config: RoutingServerConfig, force_rebuild=False) -> list[str]:
         graphs_path = _get_graphs_path(config)
@@ -84,6 +88,10 @@ class BifrostRoutingServer(RoutingServer):
         try:
             print("Starting up server...")
             wait_for_line(self.process, "Listening and serving HTTP on")
+
+            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process,self.debug))
+            self.debug_thread.start()
+
             print("Server started")
         except Exception as e:
             print("Failed to start Bifrost: " + str(e))
@@ -92,6 +100,10 @@ class BifrostRoutingServer(RoutingServer):
     def stop(self):
         if self.process:
             self.process.kill()
+        self.process = None
+        if self.debug_thread:
+            self.debug_thread.join()
+        self.debug_thread = None
 
     def get_meta(self):
         return {

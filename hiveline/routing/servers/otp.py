@@ -3,19 +3,22 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import urllib.request
 
 from hiveline.routing.servers.routing_server import RoutingServer, RoutingServerConfig
-from hiveline.routing.util import ensure_directory, wait_for_line
+from hiveline.routing.util import ensure_directory, wait_for_line, iterate_output
 
 
 class OpenTripPlannerRoutingServer(RoutingServer):
-    def __init__(self, memory_gb=4, api_timeout=20):
+    def __init__(self, memory_gb=4, api_timeout=20, debug=False):
         self.version = "2.4.0"
         self.otp_file_name = "otp-%s-shaded.jar" % self.version
         self.memory_gb = memory_gb
         self.api_timeout = api_timeout
         self.process = None  # instantiated when server is started
+        self.debug_thread: threading.Thread | None = None
+        self.debug = debug
 
     def build(self, config: RoutingServerConfig, force_rebuild=False):
         graphs_path = _get_graphs_path(config)
@@ -95,6 +98,10 @@ class OpenTripPlannerRoutingServer(RoutingServer):
             print("Starting up server...")
             wait_for_line(self.process,
                           "Grizzly server running.")  # that is the last line printed by the server when it is ready
+
+            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process, self.debug))
+            self.debug_thread.start()
+
             print("Server started")
         except Exception as e:
             print("Server startup failed")
@@ -102,19 +109,22 @@ class OpenTripPlannerRoutingServer(RoutingServer):
             self.stop()
 
     def stop(self):
-        if self.process is None:
-            return
+        if self.process is not None:
+            print("Terminating server...")
 
-        print("Terminating server...")
+            try:
+                os.kill(self.process.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
 
-        try:
-            os.kill(self.process.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
+                self.process.wait()
+            except KeyboardInterrupt:
+                pass
 
-            self.process.wait()
-        except KeyboardInterrupt:
-            pass
+            print("Server terminated")
+            self.process = None
 
-        print("Server terminated")
+        if self.debug_thread is not None:
+            self.debug_thread.join()
+            self.debug_thread = None
 
     def get_meta(self):
         return {

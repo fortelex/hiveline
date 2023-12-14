@@ -292,7 +292,7 @@ class Mode(Enum):
     WALKING = 'walking'
     UNKNOWN = ''
 
-    def __init__(self, mode):
+    def __init__(self, mode: str):
         self.mode = mode
 
     def __str__(self):

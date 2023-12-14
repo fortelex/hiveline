@@ -369,32 +369,31 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
             print("Progress: ~{:.2f}% {:}".format(percentage * progress_fac, job["vc-id"]))
             last_print = current_time
 
-        # todo
-        # try:
-        vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
+        try:
+            vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
 
-        should_route = vc_extract.should_route(vc)
+            should_route = vc_extract.should_route(vc)
 
-        if should_route:
-            __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta)
+            if should_route:
+                __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta)
 
-        # set status to finished
-        jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.datetime.now()}})
-        # except Exception as e:
-        #     short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
-        #                         + str(e)
-        #
-        #     print(short_description)
-        #
-        #     # set status to failed
-        #     jobs_coll.update_one({"_id": job["_id"]},
-        #                          {"$set": {"status": "error", "error": short_description, "finished": datetime.datetime.now()}})
-        #
-        #     consecutive_error_number += 1
-        #
-        #     if consecutive_error_number >= 5:
-        #         print("Too many consecutive errors, stopping")
-        #         raise e
+            # set status to finished
+            jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.datetime.now()}})
+        except Exception as e:
+            short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
+                                + str(e)
+
+            print(short_description)
+
+            # set status to failed
+            jobs_coll.update_one({"_id": job["_id"]},
+                                 {"$set": {"status": "error", "error": short_description, "finished": datetime.datetime.now()}})
+
+            consecutive_error_number += 1
+
+            if consecutive_error_number >= 5:
+                print("Too many consecutive errors, stopping")
+                raise e
 
 
 def __spawn_job_pull_threads(client: RoutingClient, db, sim, meta, num_threads=4):
@@ -481,8 +480,7 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
 
 
 def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4, api_timeout=10,
-                                client_timeout=20) -> [
-    RoutingServer, RoutingClient]:
+                                client_timeout=20) -> [RoutingServer, RoutingClient]:
     if profile_str == "opentripplanner":
         from hiveline.routing.servers.otp import OpenTripPlannerRoutingServer
         from hiveline.routing.clients.otp import OpenTripPlannerRoutingClient
@@ -491,14 +489,17 @@ def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4
             client_timeout=client_timeout)
     elif profile_str == "bifrost":
         from hiveline.routing.servers.bifrost import BifrostRoutingServer
+        # from hiveline.routing.servers.no_server import NoServer
+
         from hiveline.routing.clients.bifrost import BifrostRoutingClient
 
         return BifrostRoutingServer(threads=threads), BifrostRoutingClient(client_timeout=client_timeout)
+        # return NoServer(), BifrostRoutingClient(client_timeout=client_timeout)
 
     raise Exception("Unknown profile: " + profile_str)
 
 
-def __get_profile(profile_str: str, use_delays: bool = False, threads=12, memory_gb: int = 4, api_timeout=10,
+def __get_profile(profile_str: str, use_delays: bool = False, threads=4, memory_gb: int = 4, api_timeout=10,
                   client_timeout=20) -> [RoutingServer, RoutingClient]:
     [server, client] = __get_profile_without_delay(profile_str, threads=threads, memory_gb=memory_gb,
                                                    api_timeout=api_timeout, client_timeout=client_timeout)

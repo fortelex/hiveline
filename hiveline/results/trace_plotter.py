@@ -85,4 +85,4 @@ if __name__ == "__main__":
     # plot_animation("ae945a7c-5fa7-4312-b9c1-807cb30b3008", "Dublin Region, Ireland", zoom_level=11,
     #                only_use_selected=True,
     #                fps=30, duration=10, tall_city=True)
-    plot_all("8b87b845-5d82-410c-a34d-cf5e4ceba361", only_use_selected=True)
+    plot_all("bd6809da-8113-469f-91cc-501549e8df68", only_use_selected=True)

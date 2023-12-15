@@ -1,5 +1,6 @@
 import datetime
 
+import polyline
 import requests
 
 import hiveline.routing.fptf as fptf
@@ -123,6 +124,9 @@ class OpenTripPlannerRoutingClient(RoutingClient):
                             departureTime
                             arrivalTime
                         }
+                        legGeometry {
+                            points
+                        }
                     }
                 }
             }
@@ -195,6 +199,7 @@ class OtpLeg:
         self.intermediate_places = [OtpPlace(place) for place in
                                     leg['intermediatePlaces']] if 'intermediatePlaces' in leg and leg[
             'intermediatePlaces'] else []
+        self.geometry = leg['legGeometry']['points'] if 'legGeometry' in leg and 'points' in leg['legGeometry'] else ''
 
     def transform(self):
         mode = transform_mode(self.mode)
@@ -211,7 +216,39 @@ class OtpLeg:
         )
 
     def transform_stopovers(self):
-        return [place.transform_to_stopover() for place in [self.from_place] + self.intermediate_places + [self.to]]
+        if self.intermediate_places:
+            return [place.transform_to_stopover() for place in [self.from_place] + self.intermediate_places + [self.to]]
+        elif self.geometry:
+            return self._stopovers_from_geom()
+        return [self.from_place.transform_to_stopover(), self.to.transform_to_stopover()]
+
+    def _stopovers_from_geom(self):
+        geom = polyline.decode(self.geometry)
+        dep = self.start_time
+        arr = self.end_time
+        step = (arr - dep) / len(geom)
+        stopovers = [self.from_place.transform_to_stopover()]
+
+        for i, point in enumerate(geom):
+            t = dep + i * step
+            dt = datetime.datetime.fromtimestamp(t / 1000)
+
+            stopovers.append(fptf.Stopover(
+                stop=fptf.Station(
+                    id='',
+                    name='',
+                    location=fptf.Location(
+                        latitude=point[0],
+                        longitude=point[1]
+                    )
+                ),
+                arrival=dt,
+                departure=dt
+            ))
+
+        stopovers.append(self.to.transform_to_stopover())
+
+        return stopovers
 
 
 def transform_mode(mode):

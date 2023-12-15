@@ -53,5 +53,5 @@ if __name__ == "__main__":
     database = get_database()
 
     date = datetime.datetime(2022, 10, 4, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    sid = duplicate_simulation(database, "7ec1a0c7-b738-41a2-bd59-59614f12efbb", new_date=date, copy_vc=True)
-    print(sid)  # 37e3a29e-b59c-45d0-a6fd-9914a763334f
+    sid = duplicate_simulation(database, "8b87b845-5d82-410c-a34d-cf5e4ceba361", new_date=date, copy_vc=True)
+    print(sid)  # bd6809da-8113-469f-91cc-501549e8df68

@@ -143,7 +143,7 @@ class RouteResult:
         }
 
 
-def __get_route_result(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> RouteResult | None:
+def __get_route_results(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> list[RouteResult] | None:
     """
     Get a route for a virtual commuter.
     :param client: The routing client
@@ -156,12 +156,12 @@ def __get_route_result(client: RoutingClient, vc: dict, sim: dict, modes: list[f
     destination = vc_extract.extract_destination_loc(vc)
     departure = vc_extract.extract_departure(vc, sim)
 
-    journey = client.get_journey(origin[1], origin[0], destination[1], destination[0], departure, modes)
+    journeys = client.get_journeys(origin[1], origin[0], destination[1], destination[0], departure, modes)
 
-    if journey is None:
+    if journeys is None:
         return None
 
-    return RouteResult(str(uuid.uuid4()), origin, destination, departure, modes, journey)
+    return [RouteResult(str(uuid.uuid4()), origin, destination, departure, modes, journey) for journey in journeys]
 
 
 def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list[RouteResult]:
@@ -177,7 +177,14 @@ def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list
     #  if vc_extract.has_motor_vehicle(vc):
     mode_combinations += [[fptf.Mode.WALKING, fptf.Mode.CAR]]
 
-    options = [__get_route_result(client, vc, sim, modes) for modes in mode_combinations]
+    option_lists = [__get_route_results(client, vc, sim, modes) for modes in mode_combinations]
+    options = []
+
+    for option_list in option_lists:
+        if option_list is None:
+            continue
+        options += option_list
+
     options = [option for option in options if option is not None]
 
     return options

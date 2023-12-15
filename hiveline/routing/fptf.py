@@ -800,6 +800,29 @@ class Journey:
         data = json.loads(json_str)
         return journey_from_json(data)
 
+    def get_departure(self, realtime=True):
+        if not self.legs:
+            return None
+        dep = self.legs[0].departure
+        if realtime:
+            dep += datetime.timedelta(seconds=self.legs[0].departure_delay)
+        return dep
+
+    def get_arrival(self, realtime=True):
+        if not self.legs:
+            return None
+        arr = self.legs[-1].arrival
+        if realtime:
+            arr += datetime.timedelta(seconds=self.legs[-1].arrival_delay)
+        return arr
+
+    def duration(self, realtime=True):
+        dep = self.get_departure(realtime)
+        arr = self.get_arrival(realtime)
+        if not dep or not arr:
+            return None
+        return (arr - dep).total_seconds()
+
 
 def journey_from_json(data: dict | str | None):
     """

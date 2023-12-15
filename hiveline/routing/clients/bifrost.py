@@ -13,8 +13,8 @@ class BifrostRoutingClient(RoutingClient):
         """
         self.client_timeout = client_timeout
 
-    def get_journey(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
-                    modes: list[fptf.Mode]) -> fptf.Journey | None:
+    def get_journeys(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
+                     modes: list[fptf.Mode]) -> list[fptf.Journey] | None:
         """
         This function queries the Bifrost API and returns the itineraries
 
@@ -65,4 +65,4 @@ class BifrostRoutingClient(RoutingClient):
 
         result = response.json()
 
-        return fptf.journey_from_json(result)
+        return [fptf.journey_from_json(result)]

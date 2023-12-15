@@ -13,8 +13,8 @@ class OpenTripPlannerRoutingClient(RoutingClient):
         """
         self.client_timeout = client_timeout
 
-    def get_journey(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
-                    modes: list[fptf.Mode]) -> fptf.Journey | None:
+    def get_journeys(self, from_lat: float, from_lon: float, to_lat: float, to_lon: float, departure: datetime.datetime,
+                     modes: list[fptf.Mode]) -> list[fptf.Journey] | None:
         """
         This function queries the OTP GraphQL endpoint and returns the itineraries
 
@@ -155,9 +155,9 @@ class OpenTripPlannerRoutingClient(RoutingClient):
 
         journeys = otp_resp.transform()
         if len(journeys) == 0:
-            return None
+            return []
 
-        return journeys[0]
+        return journeys
 
 
 class OtpResponse:
@@ -295,5 +295,5 @@ class OtpRoute:
 
 
 if __name__ == "__main__":
-    OpenTripPlannerRoutingClient().get_journey(52.520008, 13.404954, 52.516667, 13.383333, datetime.datetime.now(),
-                                               ["WALK", "TRANSIT"])
+    OpenTripPlannerRoutingClient().get_journeys(52.520008, 13.404954, 52.516667, 13.383333, datetime.datetime.now(),
+                                                ["WALK", "TRANSIT"])

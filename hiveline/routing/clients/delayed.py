@@ -37,6 +37,19 @@ def _read_delay_statistics():
     return delay_data
 
 
+def _get_fastest_journey(journeys):
+    """
+    This function returns the fastest journey from the list of journeys
+
+    :param journeys: list of journeys
+    :return: the fastest journey
+    """
+    durations = [journey.duration() for journey in journeys]
+    min_duration = min(durations)
+    min_index = durations.index(min_duration)
+    return journeys[min_index]
+
+
 class DelayedRoutingClient(RoutingClient):
     def __init__(self, base: RoutingClient):
         # This dictionary stores the delay data for each operator
@@ -82,7 +95,7 @@ class DelayedRoutingClient(RoutingClient):
 
     time_dependent_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.WATERCRAFT, fptf.Mode.AIRCRAFT, fptf.Mode.GONDOLA]
 
-    def get_journey(self, from_lat, from_lon, to_lat, to_lon, departure, modes):
+    def get_journeys(self, from_lat, from_lon, to_lat, to_lon, departure, modes):
         """
         This function returns a delayed itinerary for the specified parameters. It uses the fastest itinerary from OTP
         and adds a random delay to each leg of the itinerary. If a leg is cancelled or the traveller cannot catch the
@@ -96,7 +109,7 @@ class DelayedRoutingClient(RoutingClient):
         :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
         :return: a delayed journey
         """
-        journey = self.base.get_journey(from_lat, from_lon, to_lat, to_lon, departure, modes)
+        journey = _get_fastest_journey(self.base.get_journeys(from_lat, from_lon, to_lat, to_lon, departure, modes))
 
         if journey is None:
             return None
@@ -181,7 +194,7 @@ class DelayedRoutingClient(RoutingClient):
             pos_lon = position.longitude
             pos_lat = position.latitude
 
-            journey = self.base.get_journey(pos_lat, pos_lon, to_lat, to_lon, new_dep, modes)
+            journey = _get_fastest_journey(self.base.get_journeys(pos_lat, pos_lon, to_lat, to_lon, new_dep, modes))
             re_calc_count += 1
 
             if journey is None:

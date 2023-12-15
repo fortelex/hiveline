@@ -1,17 +1,15 @@
-import warnings
+import os
+import sys
+import time
 
 import folium
 import h3
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mpl_colors
-import geopandas as gpd
 import pandas as pd
-from selenium import webdriver
-import time
-import os
-import sys
 from dotenv import load_dotenv
+from geojson import LineString
+from selenium import webdriver
 
 load_dotenv()
 PROJECT_PATH = os.getenv("PROJECT_PATH")
@@ -47,8 +45,8 @@ def style_white(feature):
 class CityPlotter():
     def __init__(self, city, zoom=13):
         self.city = city
-        if len(city.data.columns) <= 3:
-            self.city.load_all()
+        # if len(city.data.columns) <= 3:
+        #     self.city.load_all()
         self.centroid = self.get_centroid()  # [48.857003, 2.3492646]
         self.map = self.get_map(zoom)
 
@@ -132,23 +130,37 @@ class CityPlotter():
         driver = webdriver.Chrome(options=options)
         return driver
 
-    def add_traces(self, traces, max_points_per_trace=None):
+    def add_trace(self, trace, color, weight=2, opacity=0.75, dash_array='0, 0'):
+        """
+        Add a trace to the map
+        :param trace: trace object. a trace object is a dict with keys: tdf, color where tdf is a
+        :param color: hex color string
+        :param weight: weight of the trace line
+        :param opacity: opacity of the trace line
+        :param dash_array: dash array of the trace line
+        :return:
+        """
+        line = LineString([(lon, lat) for lat, lon, _ in trace])
+
+        tgeojson = folium.GeoJson(line,
+                                  name='tgeojson',
+                                  style_function=lambda feature: dict(color=color, weight=weight, opacity=opacity,
+                                                                      dashArray=dash_array)
+                                  )
+        tgeojson.add_to(self.map)
+
+    def add_traces(self, traces, weight=2, opacity=0.75, dash_array='0, 0'):
         """
         Add traces to the map
         :param traces: list of trace objects. each trace object is a dict with keys: tdf, color where tdf is a
-        TrajectoryDataFrame and color is a hex color string
-        :param max_points_per_trace: max number of points to plot per trace
+        trajectory and color is a hex color string
+        :param weight: weight of the trace line
+        :param opacity: opacity of the trace line
+        :param dash_array: dash array of the trace line
         :return:
         """
-        # ignore warning about down-sampling
-        warnings.filterwarnings('ignore', 'If necessary, trajectories will be down-sampled', UserWarning)
         for trace in traces:
-            tdf = trace["tdf"]
-            color = trace["color"]
-            # need to plot each trace separately to be able to set the color
-            self.map = tdf.plot_trajectory(map_f=self.map, start_end_markers=False, max_users=1,
-                                           max_points=max_points_per_trace,
-                                           hex_color=color)
+            self.add_trace(trace["trace"], trace["color"], weight=weight, opacity=opacity, dash_array=dash_array)
 
     def export_to_png(self, folder='images/', filename='image', tall_city=False, webdriver=None):
         if webdriver is None:

@@ -39,7 +39,7 @@ def __reset_failed_jobs(db, sim_id):
     print("Resetting failed jobs for simulation {}".format(sim_id))
 
     coll = db["route-calculation-jobs"]
-    coll.update_many({"sim-id": sim_id, "status": "failed"},
+    coll.update_many({"sim-id": sim_id, "status": "error"},
                      {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
 
 
@@ -135,12 +135,24 @@ class RouteResult:
 
     def to_dict(self):
         return {
+            "route-option-id": self.id,
             "origin": self.origin,
             "destination": self.destination,
             "departure": self.departure,
             "modes": [mode.to_string() for mode in self.modes],
             "journey": self.journey.to_dict()
         }
+
+    @staticmethod
+    def from_dict(d: dict):
+        return RouteResult(
+            d["route-option-id"],
+            d["origin"],
+            d["destination"],
+            d["departure"],
+            [fptf.Mode.from_string(mode) for mode in d["modes"]],
+            fptf.journey_from_json(d["journey"])
+        )
 
 
 def __get_route_results(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> list[RouteResult] | None:
@@ -262,6 +274,16 @@ def __extract_relevant_data(route_result: RouteResult):
              route-recalculated, modes (array of objects with mode, duration (in s) and distance (in m))
     """
     journey = route_result.journey
+
+    if len(journey.legs) == 0:
+        return {
+            "route-option-id": route_result.id,
+            "route-duration": 0,
+            "route-changes": 0,
+            "route-delay": 0,
+            "modes": []
+        }
+
     departure = journey.legs[0].departure
     arrival = journey.legs[-1].arrival
     delay = journey.legs[-1].arrival_delay

@@ -83,7 +83,15 @@ class OpenTripPlannerRoutingClient(RoutingClient):
                         mode
                         startTime
                         endTime
+                        agency {
+                            id
+                            name
+                            gtfsId
+                        }
                         from {
+                            stop {
+                                gtfsId
+                            }
                             name
                             lat
                             lon
@@ -91,6 +99,9 @@ class OpenTripPlannerRoutingClient(RoutingClient):
                             arrivalTime
                         }
                         to {
+                            stop {
+                                gtfsId
+                            }
                             name
                             lat
                             lon
@@ -101,25 +112,16 @@ class OpenTripPlannerRoutingClient(RoutingClient):
                             gtfsId
                             longName
                             shortName
-                            agency {
-                                id
-                                name
+                        }
+                        intermediatePlaces {
+                            stop {
                                 gtfsId
                             }
-                        }
-                        steps {
-                          distance
-                          streetName
-                          relativeDirection
-                          absoluteDirection
-                          stayOn
-                          area
-                          bogusName
-                          lon
-                          lat
-                        }
-                        legGeometry {
-                            points
+                            name
+                            lon
+                            lat
+                            departureTime
+                            arrivalTime
                         }
                     }
                 }

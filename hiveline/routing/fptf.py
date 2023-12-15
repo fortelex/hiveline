@@ -2,7 +2,9 @@ import datetime
 import json
 from enum import Enum
 
-supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z']  # first will be used for formatting
+import skmob
+
+supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S']  # first will be used for formatting
 
 
 def _remove_empty_keys(d):
@@ -10,7 +12,7 @@ def _remove_empty_keys(d):
     return {k: v for k, v in d.items() if v}
 
 
-def _read_datetime(time_str):
+def read_datetime(time_str):
     """
     Reads a time string in the RFC3339 format and returns a datetime.datetime object.
     :param time_str: The time string.
@@ -28,7 +30,7 @@ def _read_datetime(time_str):
     return None
 
 
-def _format_datetime(dt):
+def format_datetime(dt):
     """
     Formats a datetime.datetime object into a time string in the RFC3339 format.
     :param dt: The datetime.datetime object.
@@ -36,7 +38,7 @@ def _format_datetime(dt):
     """
     if not dt:
         return None
-    return dt.strftime(supported_formats[0])
+    return dt.astimezone().isoformat()
 
 
 class Location:
@@ -580,10 +582,10 @@ class Stopover:
         return _remove_empty_keys({
             'type': self.type,
             'stop': self.stop.to_dict() if self.stop else None,
-            'arrival': _format_datetime(self.arrival) if self.arrival else None,
+            'arrival': format_datetime(self.arrival) if self.arrival else None,
             'arrivalDelay': self.arrival_delay,
             'arrivalPlatform': self.arrival_platform,
-            'departure': _format_datetime(self.departure) if self.departure else None,
+            'departure': format_datetime(self.departure) if self.departure else None,
             'departureDelay': self.departure_delay,
             'departurePlatform': self.departure_platform
         })
@@ -610,10 +612,10 @@ def stopover_from_json(data: dict | str | None):
 
     return Stopover(
         stop=stop_from_json(data['stop']) if 'stop' in data else None,
-        arrival=_read_datetime(data['arrival']) if 'arrival' in data else None,
+        arrival=read_datetime(data['arrival']) if 'arrival' in data else None,
         arrival_delay=data['arrivalDelay'] if 'arrivalDelay' in data else None,
         arrival_platform=data['arrivalPlatform'] if 'arrivalPlatform' in data else None,
-        departure=_read_datetime(data['departure']) if 'departure' in data else None,
+        departure=read_datetime(data['departure']) if 'departure' in data else None,
         departure_delay=data['departureDelay'] if 'departureDelay' in data else None,
         departure_platform=data['departurePlatform'] if 'departurePlatform' in data else None
     )
@@ -717,8 +719,8 @@ class Leg:
             'type': self.type,
             'origin': self.origin.to_dict() if self.origin else None,
             'destination': self.destination.to_dict() if self.destination else None,
-            'departure': _format_datetime(self.departure) if self.departure else None,
-            'arrival': _format_datetime(self.arrival) if self.arrival else None,
+            'departure': format_datetime(self.departure) if self.departure else None,
+            'arrival': format_datetime(self.arrival) if self.arrival else None,
             'mode': self.mode.to_string(),
             'subMode': self.sub_mode,
             'departureDelay': self.departure_delay,
@@ -742,6 +744,27 @@ class Leg:
         data = json.loads(json_str)
         return leg_from_json(data)
 
+    def get_departure(self, realtime=True):
+        if not self.departure:
+            return None
+        if realtime and self.departure_delay:
+            return self.departure + datetime.timedelta(seconds=self.departure_delay)
+        return self.departure
+
+    def get_arrival(self, realtime=True):
+        if not self.arrival:
+            return None
+        if realtime and self.arrival_delay:
+            return self.arrival + datetime.timedelta(seconds=self.arrival_delay)
+        return self.arrival
+
+    def duration(self, realtime=True):
+        dep = self.get_departure(realtime)
+        arr = self.get_arrival(realtime)
+        if not dep or not arr:
+            return None
+        return (arr - dep).total_seconds()
+
 
 def leg_from_json(data: dict | str | None):
     """
@@ -754,8 +777,8 @@ def leg_from_json(data: dict | str | None):
     return Leg(
         origin=place_from_json(data['origin']) if 'origin' in data else None,
         destination=place_from_json(data['destination']) if 'destination' in data else None,
-        departure=_read_datetime(data['departure']) if 'departure' in data else None,
-        arrival=_read_datetime(data['arrival']) if 'arrival' in data else None,
+        departure=read_datetime(data['departure']) if 'departure' in data else None,
+        arrival=read_datetime(data['arrival']) if 'arrival' in data else None,
         mode=Mode.from_string(data['mode']) if 'mode' in data else None,
         sub_mode=data['subMode'] if 'subMode' in data else None,
         departure_delay=data['departureDelay'] if 'departureDelay' in data else None,
@@ -803,18 +826,12 @@ class Journey:
     def get_departure(self, realtime=True):
         if not self.legs:
             return None
-        dep = self.legs[0].departure
-        if realtime:
-            dep += datetime.timedelta(seconds=self.legs[0].departure_delay)
-        return dep
+        return self.legs[0].get_departure(realtime)
 
     def get_arrival(self, realtime=True):
         if not self.legs:
             return None
-        arr = self.legs[-1].arrival
-        if realtime:
-            arr += datetime.timedelta(seconds=self.legs[-1].arrival_delay)
-        return arr
+        return self.legs[-1].get_arrival(realtime)
 
     def duration(self, realtime=True):
         dep = self.get_departure(realtime)
@@ -822,6 +839,32 @@ class Journey:
         if not dep or not arr:
             return None
         return (arr - dep).total_seconds()
+
+    def get_trace(self, user_id=0):
+        line = []
+
+        for leg in self.legs:
+            if not leg.stopovers:
+                origin_loc = get_location(leg.origin)
+                dest_loc = get_location(leg.destination)
+
+                if origin_loc and dest_loc:
+                    line.append([origin_loc.latitude, origin_loc.longitude, leg.departure, user_id])
+                    line.append([dest_loc.latitude, dest_loc.longitude, leg.arrival, user_id])
+
+                continue
+
+            for stopover in leg.stopovers:
+                stopover_loc = get_location(stopover.stop)
+
+                t = stopover.departure
+                if not t:
+                    t = stopover.arrival
+
+                if stopover_loc:
+                    line.append([stopover_loc.latitude, stopover_loc.longitude, t, user_id])
+
+        return skmob.TrajDataFrame(line, latitude=0, longitude=1, datetime=2, user_id=3)
 
 
 def journey_from_json(data: dict | str | None):

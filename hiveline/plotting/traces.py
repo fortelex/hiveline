@@ -1,8 +1,12 @@
+import threading
 from datetime import datetime
 
 import h3
 import polyline
 import skmob
+
+from hiveline.routing import fptf
+from hiveline.routing.vc_router import RouteResult
 
 
 def get_time(timestamp):
@@ -40,16 +44,142 @@ def get_trace_heatmap_data(traces):
     return data
 
 
-def extract_traces(route_results, max_traces=None, selection=None):
-    """
-    Extracts traces from route results
-    :param route_results: the route results
-    :param max_traces: the maximum number of traces to extract
-    :param selection: the selected option for each route result (from decision module)
-    :return: a list of trace objects. each object contains a tdf (skmob.TrajDataFrame) and a color
-    """
+def _get_loc(place):
+    typ = place["type"]
+    if typ == "location":
+        return place["latitude"], place["longitude"]
+
+    if typ == "station":
+        if not place["location"]:
+            return None
+
+        return place["location"]["latitude"], place["location"]["longitude"]
+
+    if typ == "stop":
+        if place["location"]:
+            return place["location"]["latitude"], place["location"]["longitude"]
+
+        if place["station"] and place["station"]["location"]:
+            return place["station"]["location"]["latitude"], place["station"]["location"]["longitude"]
+
+        return None
+
+    return None
+
+
+def __extract_stopover(stopover):
+    loc = _get_loc(stopover["stop"])
+
+    t = fptf.read_datetime(stopover["departure"]) if "departure" in stopover else None
+    if t is None:
+        t = fptf.read_datetime(stopover["arrival"])
+
+    return [loc[0], loc[1], t]
+
+
+def __extract_trace(result, color_map, selection=None, i=0, max_points_per_trace=100):
+    selected_option_id = None
+    if selection is not None:
+        selected_option_id = selection[i]
+
     traces = []
 
+    for option in result["options"]:
+        if option is None:
+            continue
+
+        option_id = option["route-option-id"]
+
+        if selected_option_id is not None and option_id != selected_option_id:
+            continue
+
+        if ("journey" not in option) or (not option["journey"]) or ("legs" not in option["journey"]) or (
+                not option["journey"]["legs"]):
+            continue
+
+        rail_usage = 0
+        bus_usage = 0
+        walk_usage = 0
+        car_usage = 0
+
+        line = []
+
+        for leg in option["journey"]["legs"]:
+            departure = fptf.read_datetime(leg["departure"])
+            arrival = fptf.read_datetime(leg["arrival"])
+
+            duration = (arrival - departure).total_seconds()
+
+            mode = leg["mode"]
+
+            if mode == "walking":
+                walk_usage += duration
+            elif mode == "car":
+                car_usage += duration
+            elif mode == "bus":
+                bus_usage += duration
+            elif mode == "train":
+                rail_usage += duration
+
+            if not leg["stopovers"]:
+                origin_loc = _get_loc(leg["origin"])
+                dest_loc = _get_loc(leg["destination"])
+
+                if origin_loc and dest_loc:
+                    line.append([origin_loc[0], origin_loc[1], leg["departure"]])
+                    line.append([dest_loc[0], dest_loc[1], leg["arrival"]])
+                else:
+                    print("No origin or destination location found for leg")
+
+                continue
+
+            leg_trace = [__extract_stopover(stopover) for stopover in leg["stopovers"]]
+            line.extend(leg_trace)
+
+        longest_mode = "rail"
+        longest_duration = rail_usage
+
+        if car_usage > longest_duration:
+            longest_mode = "car"
+            longest_duration = car_usage
+
+        if bus_usage > longest_duration:
+            longest_mode = "bus"
+            longest_duration = bus_usage
+
+        if rail_usage > longest_duration:
+            longest_mode = "rail"
+            longest_duration = rail_usage
+
+        if car_usage == 0 and bus_usage == 0 and rail_usage == 0:
+            longest_mode = "walk"
+            longest_duration = walk_usage
+
+        if len(line) > max_points_per_trace:
+            di = max(1, int(len(line) / max_points_per_trace))
+            line = line[::di]
+
+        traces.append({
+            "trace": line,
+            "color": color_map[longest_mode]
+        })
+
+    return traces
+
+
+def __extract_traces(route_results, start, trace_lists, color_map, selection=None, max_points_per_trace=100):
+    for j, result in enumerate(route_results):
+        trace_lists[start + j] = __extract_trace(result, color_map, selection, start + j, max_points_per_trace)
+
+
+def extract_traces(route_results: list[dict], selection=None, max_points_per_trace=100):
+    """
+    Extracts trace_lists from route results
+    :param route_results: the route results
+    :param selection: the selected option for each route result (from decision module)
+    :param max_points_per_trace: max number of points to plot per trace
+    :return: a list of trace objects. each object contains a tdf (skmob.TrajDataFrame) and a color
+    """
     color_map = {
         "walk": "#D280CE",
         "car": "#FE5F55",
@@ -57,83 +187,29 @@ def extract_traces(route_results, max_traces=None, selection=None):
         "rail": "#F7F4D3"
     }
 
-    for i, result in enumerate(route_results):
-        selected_option = None
-        if selection is not None:
-            selected_option = selection[i]
+    thread_count = 50
 
-        for option in result["options"]:
-            if option is None:
-                continue
+    batch_size = int(len(route_results) / thread_count)
+    if thread_count * batch_size < len(route_results):
+        batch_size += 1
 
-            option_id = option["route-option-id"]
+    batches = [(route_results[i:i + batch_size], i) for i in range(0, len(route_results), batch_size)]
 
-            if selected_option is not None and option_id != selected_option:
-                continue
+    trace_lists: list[None | list[dict]] = [None for _ in range(len(route_results))]
 
-            for itinerary in option["itineraries"]:
-                line = []
+    threads = []
 
-                rail_usage = 0
-                bus_usage = 0
-                walk_usage = 0
-                car_usage = 0
+    for i in range(thread_count):
+        if i >= len(batches):
+            break
+        batch, start = batches[i]
+        thread = threading.Thread(target=__extract_traces, args=(batch, start, trace_lists, color_map, selection, max_points_per_trace))
+        thread.start()
+        threads.append(thread)
 
-                for leg in itinerary["legs"]:
-                    points = polyline.decode(leg["legGeometry"]["points"])
-                    start_date = leg["startTime"]  # unix timestamp in ms
-                    if "rtStartTime" in leg:
-                        start_date = leg["rtStartTime"]
-                    end_date = leg["endTime"]
-                    if "rtEndTime" in leg:
-                        end_date = leg["rtEndTime"]
+    for thread in threads:
+        thread.join()
 
-                    duration = end_date - start_date
-                    num_points = len(points)
-
-                    trajectory = [[point[0], point[1], get_time(start_date + (duration * i / num_points)), option_id]
-                                  for i, point in
-                                  enumerate(points)]
-
-                    line.extend(trajectory)
-
-                    mode = leg["mode"].lower()
-
-                    if mode == "walk":
-                        walk_usage += duration
-                    elif mode == "car":
-                        car_usage += duration
-                    elif mode == "bus":
-                        bus_usage += duration
-                    elif mode == "rail" or mode == "subway" or mode == "tram":
-                        rail_usage += duration
-
-                longest_mode = "rail"
-                longest_duration = rail_usage
-
-                if car_usage > longest_duration:
-                    longest_mode = "car"
-                    longest_duration = car_usage
-
-                if bus_usage > longest_duration:
-                    longest_mode = "bus"
-                    longest_duration = bus_usage
-
-                if rail_usage > longest_duration:
-                    longest_mode = "rail"
-                    longest_duration = rail_usage
-
-                if car_usage == 0 and bus_usage == 0 and rail_usage == 0:
-                    longest_mode = "walk"
-                    longest_duration = walk_usage
-
-                tdf = skmob.TrajDataFrame(line, latitude=0, longitude=1, datetime=2, user_id=3)
-                traces.append({
-                    "tdf": tdf,
-                    "color": color_map[longest_mode]
-                })
-
-                if max_traces is not None and len(traces) >= max_traces:
-                    return traces
+    traces = [trace for trace_list in trace_lists for trace in trace_list if trace is not None]
 
     return traces

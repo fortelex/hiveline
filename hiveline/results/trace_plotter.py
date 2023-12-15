@@ -1,9 +1,8 @@
-from visualization.plot import traces
-from mongo.db import get_database
-
-from decision import congestion, modal_shares
-from od.place import Place
-from visualization.plot.map import CityPlotter
+from hiveline.mongo.db import get_database
+from hiveline.od.place import Place
+from hiveline.plotting import traces
+from hiveline.plotting.map import CityPlotter
+from hiveline.results import modal_shares, congestion
 
 
 def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, tall_city=False, fps=30, duration=30,
@@ -56,27 +55,34 @@ def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, t
         num_to_plot += num_step
 
 
-def plot_all(sim_id):
+def plot_all(sim_id, only_use_selected=False):
     db = get_database()
 
-    route_results = db["route-results"]
+    place = Place("Eindhoven, Netherlands")
 
-    place = Place("Paris, France")
+    results = list(congestion.find_all_journeys(db, sim_id))
+    results = results[:500]
 
-    results = route_results.find({"sim-id": sim_id})
+    selection = [None] * len(results)
+
+    if only_use_selected:
+        result_options = congestion.find_matching_route_options(db, sim_id, results)
+
+        modal_shares.get_option_stats(result_options, out_selection=selection)
 
     print("Extracting traces...")
-    all_to_plot = traces.extract_traces(results)
+    all_to_plot = traces.extract_traces(results, selection=selection)
+    print("Plotting traces...")
 
     plotter = CityPlotter(place, zoom=13)
 
-    plotter.map = traces.add_traces_to_map(plotter.map, all_to_plot)
+    plotter.add_traces(all_to_plot)
 
-    plotter.export_to_png(filename="test.png")
+    plotter.export_to_png(filename="test")
 
 
 if __name__ == "__main__":
-    plot_animation("ae945a7c-5fa7-4312-b9c1-807cb30b3008", "Dublin Region, Ireland", zoom_level=11,
-                   only_use_selected=True,
-                   fps=30, duration=10, tall_city=True)
-    #  plot_all("ae945a7c-5fa7-4312-b9c1-807cb30b3008")
+    # plot_animation("ae945a7c-5fa7-4312-b9c1-807cb30b3008", "Dublin Region, Ireland", zoom_level=11,
+    #                only_use_selected=True,
+    #                fps=30, duration=10, tall_city=True)
+    plot_all("7ec1a0c7-b738-41a2-bd59-59614f12efbb", only_use_selected=True)

@@ -34,14 +34,6 @@ def style_heatmap(feature):
     }
 
 
-def style_white(feature):
-    return {
-        'color': 'white',
-        'opacity': 0.6,
-        'weight': 3,
-    }
-
-
 class CityPlotter():
     def __init__(self, city, zoom=13):
         self.city = city
@@ -61,9 +53,11 @@ class CityPlotter():
         m = folium.Map(location=self.centroid, zoom_start=zoom, tiles=mapstyle, zoom_control=False)
         return m
 
-    def add_city_shape(self):
+    def add_city_shape(self, color="white", opacity=0.6, weight=3, dash_array='0, 0'):
         shape = self.city.shape.boundary.__geo_interface__
-        shape = folium.GeoJson(data=shape, style_function=style_white)
+        shape = folium.GeoJson(data=shape,
+                               style_function=lambda feature: dict(color=color, weight=weight, opacity=opacity,
+                                                                   dashArray=dash_array))
         shape.add_to(self.map)
 
     def add_hex_heatmap(self, column):

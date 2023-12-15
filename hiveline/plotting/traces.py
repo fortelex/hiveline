@@ -2,11 +2,8 @@ import threading
 from datetime import datetime
 
 import h3
-import polyline
-import skmob
 
 from hiveline.routing import fptf
-from hiveline.routing.vc_router import RouteResult
 
 
 def get_time(timestamp):

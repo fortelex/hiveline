@@ -30,17 +30,18 @@ def wait_for_line(process, line_to_wait_for):
             return
 
 
-def iterate_output(process, debug=False):
+def iterate_output(stream, debug=False, debug_prefix="[process] "):
     """
     Print the output of a process to the console
 
-    :param process: the process
+    :param stream: the stream to read from
     :param debug: whether to print the output or not
+    :param debug_prefix: prefix for the debug output
     :return:
     """
     while True:
-        line = process.stdout.readline()
+        line = stream.readline()
         if not line:
             break
         if debug:
-            print(line)
+            print(debug_prefix + line.strip())

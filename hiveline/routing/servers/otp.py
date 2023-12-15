@@ -18,6 +18,7 @@ class OpenTripPlannerRoutingServer(RoutingServer):
         self.api_timeout = api_timeout
         self.process = None  # instantiated when server is started
         self.debug_thread: threading.Thread | None = None
+        self.err_thread: threading.Thread | None = None
         self.debug = debug
 
     def build(self, config: RoutingServerConfig, force_rebuild=False):
@@ -99,8 +100,11 @@ class OpenTripPlannerRoutingServer(RoutingServer):
             wait_for_line(self.process,
                           "Grizzly server running.")  # that is the last line printed by the server when it is ready
 
-            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process, self.debug))
+            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process.stdout, self.debug, "[otp.out] "))
             self.debug_thread.start()
+
+            self.err_thread = threading.Thread(target=iterate_output, args=(self.process.stderr, True, "[otp.err] "))
+            self.err_thread.start()
 
             print("Server started")
         except Exception as e:
@@ -125,6 +129,10 @@ class OpenTripPlannerRoutingServer(RoutingServer):
         if self.debug_thread is not None:
             self.debug_thread.join()
             self.debug_thread = None
+
+        if self.err_thread is not None:
+            self.err_thread.join()
+            self.err_thread = None
 
     def get_meta(self):
         return {

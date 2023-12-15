@@ -13,7 +13,7 @@ from hiveline.routing.util import ensure_directory, wait_for_line, iterate_outpu
 
 class BifrostRoutingServer(RoutingServer):
     def __init__(self, threads=12, debug=False):
-        self.version = "1.0.3"
+        self.version = "1.0.6"
         self.threads = threads
         self.file_name = "server-" + self.version
         self.download_url = "https://github.com/Vector-Hector/bifrost/releases/download/v" + self.version + "/server"
@@ -22,6 +22,7 @@ class BifrostRoutingServer(RoutingServer):
             self.download_url += ".exe"
         self.process = None  # instantiated when server is started
         self.debug_thread: threading.Thread | None = None
+        self.err_thread: threading.Thread | None = None
         self.debug = debug
 
     def build(self, config: RoutingServerConfig, force_rebuild=False) -> list[str]:
@@ -89,8 +90,11 @@ class BifrostRoutingServer(RoutingServer):
             print("Starting up server...")
             wait_for_line(self.process, "Listening and serving HTTP on")
 
-            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process,self.debug))
+            self.debug_thread = threading.Thread(target=iterate_output, args=(self.process.stdout, self.debug, "[bifrost.out] "))
             self.debug_thread.start()
+
+            self.err_thread = threading.Thread(target=iterate_output, args=(self.process.stderr, True, "[bifrost.err] "))
+            self.err_thread.start()
 
             print("Server started")
         except Exception as e:
@@ -104,6 +108,9 @@ class BifrostRoutingServer(RoutingServer):
         if self.debug_thread:
             self.debug_thread.join()
         self.debug_thread = None
+        if self.err_thread:
+            self.err_thread.join()
+        self.err_thread = None
 
     def get_meta(self):
         return {

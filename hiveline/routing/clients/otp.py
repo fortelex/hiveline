@@ -38,7 +38,6 @@ class OpenTripPlannerRoutingClient(RoutingClient):
                 otp_modes.append("WALK")
             elif mode == fptf.Mode.BUS:
                 otp_modes.append("BUS")
-                otp_modes.append("COACH")
                 otp_modes.append("TROLLEYBUS")
             elif mode == fptf.Mode.TRAIN:
                 otp_modes.append("RAIL")
@@ -66,7 +65,7 @@ class OpenTripPlannerRoutingClient(RoutingClient):
         date = departure.strftime("%Y-%m-%d")
         time = departure.strftime("%H:%M")
 
-        mode_str = '{mode: ' + '} {mode:'.join(modes) + '}'
+        mode_str = '{mode: ' + '} {mode:'.join(otp_modes) + '}'
 
         query = """
         {
@@ -144,8 +143,8 @@ class OpenTripPlannerRoutingClient(RoutingClient):
 
         json_data = response.json()
 
-        if "data" not in json_data:
-            print("Empty data key. OTP may have failed to parse the request. Query:")
+        if not json_data or "data" not in json_data or "errors" in json_data:
+            print("OTP may have failed to parse the request. Query:")
             print(query)
             print("Response:")
             print(json_data)
@@ -187,11 +186,12 @@ class OtpLeg:
         self.mode = leg['mode']
         self.start_time = leg['startTime']
         self.end_time = leg['endTime']
-        self.agency = OtpAgency(leg['agency']) if leg['agency'] else None
+        self.agency = OtpAgency(leg['agency']) if 'agency' in leg and leg['agency'] else None
         self.from_place = OtpPlace(leg['from'])
         self.to = OtpPlace(leg['to'])
-        self.route = OtpRoute(leg['route']) if leg['route'] else None
-        self.intermediate_places = [OtpPlace(place) for place in leg['intermediatePlaces']] if leg[
+        self.route = OtpRoute(leg['route']) if 'route' in leg and leg['route'] else None
+        self.intermediate_places = [OtpPlace(place) for place in
+                                    leg['intermediatePlaces']] if 'intermediatePlaces' in leg and leg[
             'intermediatePlaces'] else []
 
     def transform(self):
@@ -241,7 +241,7 @@ class OtpAgency:
 
 class OtpPlace:
     def __init__(self, place):
-        self.stop = OtpStop(place['stop']) if place['stop'] else None
+        self.stop = OtpStop(place['stop']) if 'stop' in place and place['stop'] else None
         self.name = place['name']
         self.lat = place['lat']
         self.lon = place['lon']

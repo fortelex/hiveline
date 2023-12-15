@@ -293,6 +293,7 @@ def __process_virtual_commuter(client, route_results_coll, route_options_coll, v
     options = __route_virtual_commuter(client, vc, sim)
 
     if options is None or len(options) == 0:
+        print("No route found for virtual commuter " + vc["vc-id"])
         raise Exception("No route found")
 
     # dump options to route-results collection

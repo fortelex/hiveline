@@ -10,11 +10,12 @@ import numpy as np
 from matplotlib import pyplot as plt
 from selenium import webdriver
 
-from mongo.db import get_database
-import vc.vc_extract as vc_extract
-import results.congestion as congestion
+from hiveline.mongo.db import get_database
+import hiveline.vc.vc_extract as vc_extract
+import hiveline.results.congestion as congestion
+from hiveline.routing import fptf
 
-rail_modes = ["rail", "tram", "subway"]
+rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
 
 
 class Params:
@@ -143,9 +144,9 @@ def get_option_stats(route_options, mask=None, delay_set=None, out_selection=Non
         is_transit = False  # is the fastest mode a transit trip?
 
         for leg in legs:
-            mode = leg["mode"]
+            mode = fptf.Mode.from_string(leg["mode"])
 
-            if mode == "car":
+            if mode == fptf.Mode.CAR:
                 is_car = True
                 total_car_meters += leg["distance"]
                 total_car_passengers += 1
@@ -157,16 +158,16 @@ def get_option_stats(route_options, mask=None, delay_set=None, out_selection=Non
                 total_rail_passengers += 1
                 continue
 
-            if mode == "bus":
+            if mode == fptf.Mode.BUS:
                 is_transit = True
                 total_bus_meters += leg["distance"]
                 total_bus_passengers += 1
                 continue
 
-            if mode == "bicycle":
+            if mode == fptf.Mode.BICYCLE:
                 continue
 
-            if mode == "walk":
+            if mode == fptf.Mode.WALKING:
                 total_walk_meters += leg["distance"]
                 total_walkers += 1
                 continue
@@ -193,20 +194,20 @@ def get_option_stats(route_options, mask=None, delay_set=None, out_selection=Non
             car_owners_choosing_walk += 1
 
     return {
-               "total_car_meters": total_car_meters,
-               "total_rail_meters": total_rail_meters,
-               "total_bus_meters": total_bus_meters,
-               "total_walk_meters": total_walk_meters,
-               "total_car_passengers": total_car_passengers,
-               "total_rail_passengers": total_rail_passengers,
-               "total_bus_passengers": total_bus_passengers,
-               "total_walkers": total_walkers,
-               "car_owners_choosing_cars": car_owners_choosing_cars,
-               "car_owners_choosing_transit": car_owners_choosing_transit,
-               "car_owners_choosing_walk": car_owners_choosing_walk,
-               "would_use_car_count": would_use_car_count,
-               "wouldnt_use_car_count": wouldnt_use_car_count,
-           }, out_mask
+        "total_car_meters": total_car_meters,
+        "total_rail_meters": total_rail_meters,
+        "total_bus_meters": total_bus_meters,
+        "total_walk_meters": total_walk_meters,
+        "total_car_passengers": total_car_passengers,
+        "total_rail_passengers": total_rail_passengers,
+        "total_bus_passengers": total_bus_passengers,
+        "total_walkers": total_walkers,
+        "car_owners_choosing_cars": car_owners_choosing_cars,
+        "car_owners_choosing_transit": car_owners_choosing_transit,
+        "car_owners_choosing_walk": car_owners_choosing_walk,
+        "would_use_car_count": would_use_car_count,
+        "wouldnt_use_car_count": wouldnt_use_car_count,
+    }, out_mask
 
 
 def get_sim_stats(sim_id, params=None, db=None):
@@ -576,7 +577,7 @@ def plot_monte_carlo_convergence(sim_id, db=None, city_name=None, params=None):
     plt.legend(fontsize=24, facecolor=background_color, edgecolor=background_color)
     plt.gca().set_facecolor(background_color)
     plt.gcf().set_facecolor(background_color)
-    plt.savefig("modal_shares_" + city_name.lower().replace(" ", "") + "_1920x1080.png", dpi=100,
+    plt.savefig("modal_shares_" + (city_name or "").lower().replace(" ", "") + "_1920x1080.png", dpi=100,
                 facecolor=plt.gcf().get_facecolor())
     plt.show()
 
@@ -800,7 +801,7 @@ def temp_dublin_calibration():
     print("Running for " + city["name"])
 
     params.car_usage_override = 0
-    params.car_ownership_override = 0.3 # 0.41
+    params.car_ownership_override = 0.3  # 0.41
 
     params.num_citizens = city["inhabitants"]
     stats = run_decisions(db, city["sim-id"], params)
@@ -818,13 +819,13 @@ if __name__ == "__main__":
     # plot_vehicle_factors("735a3098-8a19-4252-9ca8-9372891e90b3")
     # plot_congestion_for_sim("0ee97ddf-333e-4f62-b3de-8d7f52459065")
 
+    # run_decisions(get_database(), "7ec1a0c7-b738-41a2-bd59-59614f12efbb", Params())
+
     # run_modal_share_for_some_cities()
     # plot_monte_carlo_convergence()
     # plot_transit_monte_carlo_convergence()
     # plot_paris_congestion()
     # analyze_waling_distances(common_cities[2])
-    __plot_common_monte_carlo_convergence()
+    plot_monte_carlo_convergence("7ec1a0c7-b738-41a2-bd59-59614f12efbb", city_name="Eindhoven 2022 Bifrost")
+    plot_monte_carlo_convergence("37e3a29e-b59c-45d0-a6fd-9914a763334f", city_name="Eindhoven 2022 OTP")
     # plot_transit_monte_carlo_convergence()
-
-
-

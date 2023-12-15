@@ -3,7 +3,7 @@ import pandas as pd
 import seaborn as sns
 
 from hiveline.mongo.db import get_database
-import vc.vc_extract as vc_extract
+import hiveline.vc.vc_extract as vc_extract
 
 
 class CongestionOptions:

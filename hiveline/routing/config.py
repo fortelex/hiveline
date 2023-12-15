@@ -7,4 +7,4 @@ if not base_path.endswith("/"):
 
 bin_path = base_path + "hiveline/routing/bin"
 data_path = base_path + "hiveline/routing/data"
-delay_path = base_path + "routing/delay_statistics"
+delay_path = base_path + "hiveline/routing/delay_statistics"

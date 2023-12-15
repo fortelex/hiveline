@@ -44,6 +44,21 @@ class Place():
         # mongo
         self.mongo_db = mongo.get_database()
         self.load_regions()
+    
+    def merge_places(self, new_name, place_names):
+        '''
+        Extend the current place with other places (reset place data)
+        Args:
+            new_name (str): the new place name
+            place_names (list of str): the list of place names to add
+        '''
+        for p in place_names:
+            other_place = Place(p, self.year)
+            self.tiles = pd.concat([self.tiles, other_place.tiles], ignore_index=True)
+
+        self.data = self.tiles.copy()
+        self.name = new_name
+        self.load_regions()
 
     def get_tiles(self, h3_resolution=8):
         '''
@@ -117,7 +132,7 @@ class Place():
                 match_ids = self.data[match_field_list[0]].to_list()
                 result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields_year)
                 # call loading function if the search result is empty or incomplete
-                if result_df.empty or len(result_df.columns)<len(fields)+1 or len(result_df) < len(match_ids):
+                if result_df.empty or len(result_df.columns)<2 or len(result_df) < len(match_ids):
                     print('Data not in db, computing')
                     # split in chunks that can be computed in one go
                     chunk_size=300
@@ -240,8 +255,10 @@ class Place():
         for i, tile in destination.iterrows():
             for interest in self.zones.keys():
                 # clip zones by hex tile
-                local_zoi = gpd.clip(
-                    self.zones[interest], tile['geometry']).copy()  # zoi = zones of interest
+                if not self.zones[interest].empty:
+                    local_zoi = gpd.clip(self.zones[interest], tile['geometry']).copy()  # zoi = zones of interest
+                else:
+                    local_zoi = gpd.GeoDataFrame()
                 # compute interest area in tile
                 area = 0
                 nb_points = 0

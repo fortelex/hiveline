@@ -6,6 +6,8 @@ if __name__ == "__main__":
 
     load_dotenv()
     sys.path.append(os.getenv("PROJECT_PATH"))
+import platform
+CURRENT_OS = platform.system() # 'Windows', 'Linux' or 'Darwin' (MacOS)
 
 import argparse
 import math
@@ -518,8 +520,10 @@ def __route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False
         print("Terminating server...")
 
         try:
-            os.kill(proc.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
-
+            if CURRENT_OS=='Windows':
+                os.kill(proc.pid, signal.CTRL_C_EVENT) # clean shutdown with CTRL+C
+            else: 
+                os.kill(proc.pid, signal.SIGINT) 
             proc.wait()
         except KeyboardInterrupt:
             pass

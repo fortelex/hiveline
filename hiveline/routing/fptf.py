@@ -853,7 +853,7 @@ class Journey:
 
                 if origin_loc and dest_loc:
                     line.append(((origin_loc.longitude, origin_loc.latitude), leg.departure, leg.mode, True))
-                    line.append(((dest_loc.longitude, dest_loc.latitude), leg.arrival, leg.mode))
+                    line.append(((dest_loc.longitude, dest_loc.latitude), leg.arrival, leg.mode, False))
 
                 continue
 

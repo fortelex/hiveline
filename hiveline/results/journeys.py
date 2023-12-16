@@ -10,7 +10,7 @@ from hiveline.mongo.db import get_database
 from hiveline.routing import fptf
 from hiveline.routing.util import ensure_directory
 
-rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
+rail_modes = [fptf.Mode.TRAIN, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
 
 
 class Option:

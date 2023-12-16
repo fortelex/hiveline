@@ -2,12 +2,14 @@ import datetime
 import random
 import uuid
 
+import osmnx
 from matplotlib import pyplot as plt
 
 import hiveline.vc.vc_extract as vc_extract
 from hiveline.od.place import Place
 from hiveline.results.journeys import Journeys, Option, Options, get_option_stats, JourneyStats
 from hiveline.routing import fptf
+from hiveline.routing.util import ensure_directory
 
 rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
 
@@ -276,9 +278,15 @@ def analyze_waling_distances(journeys: Journeys, city_name=None):
 
 # todo use random.systemrandom() instead of random.random() for better randomness
 if __name__ == "__main__":
-    t = datetime.datetime.now()
-    jrn = Journeys("bd6809da-8113-469f-91cc-501549e8df68")
-    print(f"Loading journeys took {(datetime.datetime.now() - t).total_seconds()} seconds")
+    # t = datetime.datetime.now()
+    # jrn = Journeys("bd6809da-8113-469f-91cc-501549e8df68")
+    # print(f"Loading journeys took {(datetime.datetime.now() - t).total_seconds()} seconds")
+    #
+    # plot_monte_carlo_convergence(jrn, "Eindhoven suburbs, Netherlands")
+    # plot_monte_carlo_convergence(jrn, "Eindhoven, Netherlands", use_city_bounds=True)
 
-    plot_monte_carlo_convergence(jrn, "Eindhoven suburbs, Netherlands")
-    plot_monte_carlo_convergence(jrn, "Eindhoven, Netherlands", use_city_bounds=True)
+    bounds_dir = "./cache/place-bounds"
+    ensure_directory(bounds_dir)
+
+    with open(bounds_dir + "/eindhoven.json", "w") as f:
+        f.write(osmnx.geocode_to_gdf("Eindhoven, Netherlands").to_json(to_wgs84=True))

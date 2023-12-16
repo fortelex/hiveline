@@ -1,9 +1,12 @@
+import folium
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from hiveline.mongo.db import get_database
 import hiveline.vc.vc_extract as vc_extract
+from hiveline.mongo.db import get_database
+from hiveline.results.modal_shares import Params
 
 
 class CongestionOptions:
@@ -450,6 +453,129 @@ def plot_delays_for_factors(sim_id, vehicle_factors, total_citizens=1000.0):
         sns.displot(df)
         plt.title(f"Congestion set for {vehicles_per_journey} vehicles per journey")
         plt.show()
+
+
+# def run_congestion_simulation(db, sim_id, params: Params):
+#     """
+#     Run the decision algorithm with congestion simulation
+#     :param db: the database
+#     :param sim_id: the simulation id
+#     :param params: the simulation parameters
+#     :return: a dict with the results and sturctures used
+#     - modal_share: the modal share if the last iteration
+#     - congestion_set: the congestion set of the last iteration
+#     - iterations: the number of iterations
+#     - journeys: the journeys analyzed
+#     - edges: the edges used by the journeys
+#     - mask: the mask of journeys that use a car in the last iteration
+#     """
+#     # count route-results
+#     num_results = db["route-results"].count_documents({"sim-id": sim_id})
+#
+#     vehicles_per_journey = params.vehicle_factor * params.num_citizens / num_results
+#     print(f"Vehicles per journey: {vehicles_per_journey}")
+#
+#     journeys = list(congestion.find_all_journeys(db, sim_id))
+#     route_options = congestion.find_matching_route_options(db, sim_id, journeys)
+#     edges = congestion.get_edges(db, sim_id, journeys)
+#
+#     # start off with half of the vcs on the road
+#
+#     mask = [random.random() < params.vcs_car_usage_start for _ in range(len(journeys))]
+#     last_modal_share = None
+#     last_congestion_set = None
+#
+#     i = -1
+#
+#     while True:
+#         i += 1
+#
+#         congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
+#         delay_set = get_delay_set_from_congestion(congestion_set, journeys, route_options, edges,
+#                                                   params.congestion_options)
+#
+#         stats, next_mask = get_stats_from_route_options(route_options, mask, delay_set)
+#
+#         modal_share = get_transit_modal_share(stats)
+#
+#         print(f"Iteration {i} - transit modal share: {modal_share * 100}%")
+#
+#         if last_modal_share is None:
+#             last_modal_share = modal_share
+#             continue
+#
+#         diff = abs(modal_share - last_modal_share)
+#
+#         last_modal_share = modal_share
+#         last_congestion_set = congestion_set
+#
+#         if diff < 0.001 or i > 100:
+#             break
+#
+#         # update mask
+#         for j in range(len(mask)):
+#             if random.random() < params.mix_factor:
+#                 mask[j] = next_mask[j]
+#
+#     return {
+#         "modal_share": modal_share,
+#         "congestion_set": last_congestion_set,
+#         "iterations": i,
+#         "journeys": journeys,
+#         "edges": edges,
+#         "mask": mask
+#     }
+
+
+def plot_congestion_for_set(f_map, congestion_set, nodes):
+    # Define a color scale
+    # linear = cm.LinearColormap(colors=plt.cm.inferno.colors, index=[0, 1], vmin=0, vmax=1)
+
+    inferno = plt.cm.get_cmap('inferno')
+
+    for (origin, destination), speed_factor in congestion_set.items():
+        origin_node = nodes[origin]["node"]
+        destination_node = nodes[destination]["node"]
+
+        origin_point = (origin_node["y"], origin_node["x"])
+        destination_point = (destination_node["y"], destination_node["x"])
+
+        col = inferno(1 - speed_factor)
+        col_hex = matplotlib.colors.rgb2hex(col)
+        folium.PolyLine([origin_point, destination_point], color=col_hex,
+                        opacity=1 - speed_factor).add_to(f_map)
+
+    return f_map
+
+
+def plot_congestion_for_sim(f_map, sim_id, params=None):
+    db = get_database()
+
+    if params is None:
+        params = Params()
+
+    params.vehicle_factor = 0.001  # high vehicle factor to see congestion
+
+    db = get_database()
+
+    num_results = db["route-results"].count_documents({"sim-id": sim_id})
+
+    vehicles_per_journey = params.vehicle_factor * params.num_citizens / num_results
+    print(f"Vehicles per journey: {vehicles_per_journey}")
+
+    journeys = list(find_all_journeys(db, sim_id))
+    route_options = find_matching_route_options(db, sim_id, journeys)
+
+    mask = [vc_extract.would_use_motorized_vehicle(route_option["traveller"]) for route_option in route_options]
+
+    edges = get_edges(db, sim_id, journeys)
+
+    congestion_set = get_congestion_set(journeys, edges, mask, vehicles_per_journey)
+    # data = run_congestion_simulation(db, sim_id, params)
+
+    nodes = get_nodes(db, sim_id, edges)
+
+    return plot_congestion_for_set(f_map, congestion_set, nodes)
 
 
 if __name__ == "__main__":

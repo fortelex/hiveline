@@ -206,7 +206,7 @@ def __no_active_jobs(db, sim_id):
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
 
 
-def __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta):
+def __process_virtual_commuter(client, route_results_coll, vc, sim, meta):
     options = __route_virtual_commuter(client, vc, sim)
 
     if options is None or len(options) == 0:
@@ -235,7 +235,6 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
     jobs_coll = db["route-calculation-jobs"]
     vc_coll = db["virtual-commuters"]
     route_results_coll = db["route-results"]
-    route_options_coll = db["route-options"]
 
     sim_id = sim["sim-id"]
 
@@ -278,7 +277,7 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
             should_route = vc_extract.should_route(vc)
 
             if should_route:
-                __process_virtual_commuter(client, route_results_coll, route_options_coll, vc, sim, meta)
+                __process_virtual_commuter(client, route_results_coll, vc, sim, meta)
 
             # set status to finished
             jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.datetime.now()}})

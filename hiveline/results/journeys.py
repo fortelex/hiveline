@@ -146,13 +146,23 @@ class Journeys:
             yield o
 
     def iterate_selection(self, selection: list[str | None]) -> Generator[Option, None, None]:
-        for (i, o) in enumerate(self.options):
-            if selection[i] is not None:
-                yield o.get_option(selection[i])
+        for (i, sel) in enumerate(selection):
+            if sel is not None:
+                yield self.options[i].get_option(sel)
 
-    def get_selection(self, decision: Callable[[Options], Option | None]) -> list[str | None]:
-        options = [decision(o) for o in self.options]
-        return [o.id if o is not None else None for o in options]
+    def get_selection(self, decision: Callable[[Options], Option | None], max_count=None) -> list[str | None]:
+        """
+        Get the selection of options based on a decision function
+        :param decision: the decision function
+        :param max_count: (optional) the maximum number of options to return
+        :return:
+        """
+        options = self.options
+        if max_count is not None:
+            options = options[:max_count]
+
+        decided = [decision(o) for o in options]
+        return [o.id if o is not None else None for o in decided]
 
     def __load_cache(self):
         with open(self.cache + "/" + self.sim_id + ".json", "r") as f:

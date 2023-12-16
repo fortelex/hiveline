@@ -5,17 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Vector-Hector/fptf"
-	"github.com/Vector-Hector/goutil"
 	"github.com/joho/godotenv"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geo"
 	"github.com/paulmach/orb/geojson"
 	"github.com/paulmach/orb/planar"
+	"github.com/uber/h3-go/v4"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -23,12 +25,15 @@ func main() {
 	simId := "bd6809da-8113-469f-91cc-501549e8df68"
 	cache := "./cache"
 
-	boundary, err := readBoundary(cache + "/place-bounds/eindhoven.json")
-	if err != nil {
-		panic(err)
-	}
-
 	t := time.Now()
+
+	//tiles, err := getTiles(simId)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	//fmt.Println("got", len(tiles), "tiles in", time.Since(t))
+	//t = time.Now()
 
 	results, err := getResults(simId, cache)
 	if err != nil {
@@ -48,25 +53,85 @@ func main() {
 	fmt.Println("got", len(traces), "traces in", time.Since(t))
 	t = time.Now()
 
-	traces = filterTraces(traces, boundary)
+	tiles := getTilesFromTraces(traces)
 
-	fmt.Println("got", len(traces), "filtered traces in", time.Since(t))
+	fmt.Println("got", len(tiles), "tiles in", time.Since(t))
 	t = time.Now()
 
-	stats := getStats(traces)
+	result := make(map[string]*TransportShares)
 
-	fmt.Println("got stats in", time.Since(t))
-	t = time.Now()
+	for _, tile := range tiles {
+		filtered := filterTraces(traces, tile.Bounds)
 
-	util.PrintJSON(stats)
-	util.PrintJSON(stats.GetShares())
+		stats := getStats(filtered)
+
+		if stats.IsEmpty() {
+			continue
+		}
+
+		result[tile.Cell.String()] = stats.GetShares()
+	}
+
+	fmt.Println("got", len(result), "results in", time.Since(t))
+
+	err = writeJSON(cache+"/modal-heatmaps/"+simId+".json", result)
+	if err != nil {
+		panic(err)
+	}
+}
+
+type Tile struct {
+	Cell   h3.Cell
+	Bounds PolyBounds
+}
+
+func getCellPolygon(cell h3.Cell) orb.Polygon {
+	points := make([]orb.Point, 7)
+	boundary := cell.Boundary()
+
+	for i := 0; i < 6; i++ {
+		points[i] = orb.Point{boundary[i].Lng, boundary[i].Lat}
+	}
+
+	points[6] = points[0]
+
+	return orb.Polygon{points}
+}
+
+type Bounds interface {
+	Contains(point orb.Point) bool
+}
+
+type MultiPolyBounds []PolyBounds
+
+func (b MultiPolyBounds) Contains(point orb.Point) bool {
+	for _, poly := range b {
+		if poly.Contains(point) {
+			return true
+		}
+	}
+
+	return false
+}
+
+type PolyBounds struct {
+	Geometry orb.Polygon
+	Bounds   orb.Bound
+}
+
+func (b PolyBounds) Contains(point orb.Point) bool {
+	if !b.Bounds.Contains(point) {
+		return false
+	}
+
+	return planar.PolygonContains(b.Geometry, point)
 }
 
 type TransportShares struct {
-	Car  float64
-	Rail float64
-	Bus  float64
-	Walk float64
+	Car  float64 `json:"car"`
+	Rail float64 `json:"rail"`
+	Bus  float64 `json:"bus"`
+	Walk float64 `json:"walk"`
 }
 
 type JourneyStats struct {
@@ -79,6 +144,17 @@ type JourneyStats struct {
 	RailPassengers float64
 	BusPassengers  float64
 	Walkers        float64
+}
+
+func (s *JourneyStats) IsEmpty() bool {
+	return s.CarMeters == 0 &&
+		s.RailMeters == 0 &&
+		s.BusMeters == 0 &&
+		s.WalkMeters == 0 &&
+		s.CarPassengers == 0 &&
+		s.RailPassengers == 0 &&
+		s.BusPassengers == 0 &&
+		s.Walkers == 0
 }
 
 func (s *JourneyStats) Add(other *JourneyStats) *JourneyStats {
@@ -102,6 +178,10 @@ func (s *JourneyStats) GetShares() *TransportShares {
 	walkPm := s.WalkMeters * s.Walkers
 
 	total := carPm + railPm + busPm + walkPm
+
+	if total == 0 {
+		return &TransportShares{}
+	}
 
 	return &TransportShares{
 		Car:  carPm / total,
@@ -168,7 +248,7 @@ func getTraceStats(trace Trace) *JourneyStats {
 
 	if stats.CarPassengers > 1 {
 		fmt.Println("car with passengers:", stats.CarPassengers)
-		util.PrintJSON(trace)
+		//util.PrintJSON(trace)
 	}
 
 	return stats
@@ -183,13 +263,28 @@ type TraceElement struct {
 
 type Trace []TraceElement
 
-func filterTrace(trace Trace, boundary orb.MultiPolygon) Trace {
+func filterTrace(trace Trace, boundary Bounds) Trace {
+	contains := make([]bool, len(trace))
+
+	for i, elem := range trace {
+		contains[i] = boundary.Contains(elem.Point)
+	}
+
 	filtered := make(Trace, 0)
 	carryLegStart := false
 
-	for _, elem := range trace {
+	for i, elem := range trace {
 		isLegStart := elem.IsLegStart
-		cont := planar.MultiPolygonContains(boundary, elem.Point)
+		cont := contains[i]
+
+		// also include points next to the boundary
+		if i > 0 && contains[i-1] && !cont {
+			cont = true
+		}
+		if i < len(trace)-1 && contains[i+1] && !cont {
+			cont = true
+		}
+
 		if cont {
 			isLegStart = isLegStart || carryLegStart
 			carryLegStart = false
@@ -210,7 +305,7 @@ func filterTrace(trace Trace, boundary orb.MultiPolygon) Trace {
 	return filtered
 }
 
-func filterTraces(traces []Trace, boundary orb.MultiPolygon) []Trace {
+func filterTraces(traces []Trace, boundary Bounds) []Trace {
 	filtered := make([]Trace, len(traces))
 
 	theadCount := 12
@@ -361,6 +456,15 @@ func readJSON(path string, target any) error {
 }
 
 func writeJSON(path string, source any) error {
+	dirPath := filepath.Dir(path)
+
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		err = os.MkdirAll(dirPath, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
 	data, err := json.Marshal(source)
 	if err != nil {
 		return err
@@ -424,7 +528,16 @@ func getResults(simId string, cache string) ([]*RouteResult, error) {
 	return results, nil
 }
 
-func readBoundary(path string) (orb.MultiPolygon, error) {
+func getPolyBounds(poly orb.Polygon) PolyBounds {
+	bounds := poly.Bound()
+
+	return PolyBounds{
+		Geometry: poly,
+		Bounds:   bounds,
+	}
+}
+
+func readBoundary(path string) (MultiPolyBounds, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -442,7 +555,7 @@ func readBoundary(path string) (orb.MultiPolygon, error) {
 		return nil, err
 	}
 
-	polygons := make([]orb.Polygon, 0)
+	polygons := make([]PolyBounds, 0)
 
 	for _, feature := range fc.Features {
 		geom := feature.Geometry
@@ -452,18 +565,108 @@ func readBoundary(path string) (orb.MultiPolygon, error) {
 
 		polygon, ok := geom.(orb.Polygon)
 		if ok {
-			polygons = append(polygons, polygon)
+			polygons = append(polygons, getPolyBounds(polygon))
 			continue
 		}
 
 		multiPolygon, ok := geom.(orb.MultiPolygon)
 		if ok {
-			polygons = append(polygons, multiPolygon...)
+			for _, poly := range multiPolygon {
+				polygons = append(polygons, getPolyBounds(poly))
+			}
 			continue
 		}
 	}
 
 	return polygons, nil
+}
+
+type Simulation struct {
+	Id               primitive.ObjectID `bson:"_id" json:"id"`
+	SimId            string             `bson:"sim-id" json:"sim-id"`
+	PlaceId          primitive.ObjectID `bson:"place-id" json:"place-id"`
+	PivotDate        time.Time          `bson:"pivot-date" json:"pivot-date"`
+	Created          time.Time          `bson:"created" json:"created"`
+	CreatedBy        string             `bson:"created-by" json:"created-by"`
+	CreatedFromSimId string             `bson:"created-from-sim-id" json:"created-from-sim-id"`
+}
+
+type Place struct {
+	Id      primitive.ObjectID `bson:"_id" json:"id"`
+	Name    string             `bson:"name" json:"name"`
+	Country string             `bson:"country" json:"country"`
+	Shape   string             `bson:"shape" json:"shape"`
+	Bbox    string             `bson:"bbox" json:"bbox"`
+	Tiles   []int64            `bson:"tiles" json:"tiles"`
+	Nuts3   []string           `bson:"nuts-3" json:"nuts-3"`
+}
+
+func getTiles(simId string) ([]Tile, error) {
+	client, database := getDatabase()
+
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			panic(err)
+		}
+	}()
+
+	db := client.Database(database)
+
+	var sim Simulation
+	err := db.Collection("simulations").FindOne(context.Background(), bson.M{
+		"sim-id": simId,
+	}).Decode(&sim)
+	if err != nil {
+		return nil, err
+	}
+
+	var place Place
+	err = db.Collection("places").FindOne(context.Background(), bson.M{
+		"_id": sim.PlaceId,
+	}).Decode(&place)
+	if err != nil {
+		return nil, err
+	}
+
+	tiles := make([]Tile, len(place.Tiles))
+
+	for i, tile := range place.Tiles {
+		cell := h3.Cell(tile)
+		polygon := getCellPolygon(cell)
+		boundary := getPolyBounds(polygon)
+		tiles[i] = Tile{
+			Cell:   cell,
+			Bounds: boundary,
+		}
+	}
+
+	return tiles, nil
+}
+
+func getTilesFromTraces(traces []Trace) []Tile {
+	tileIds := make(map[h3.Cell]bool)
+
+	for _, trace := range traces {
+		for _, elem := range trace {
+			cell := h3.LatLngToCell(h3.LatLng{Lat: elem.Point[1], Lng: elem.Point[0]}, 8)
+			tileIds[cell] = true
+		}
+	}
+
+	tiles := make([]Tile, 0, len(tileIds))
+
+	for cell := range tileIds {
+		polygon := getCellPolygon(cell)
+		boundary := getPolyBounds(polygon)
+		tile := Tile{
+			Cell:   cell,
+			Bounds: boundary,
+		}
+
+		tiles = append(tiles, tile)
+	}
+
+	return tiles
 }
 
 type Journey struct {

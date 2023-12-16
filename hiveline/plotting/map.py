@@ -5,6 +5,7 @@ import time
 import folium
 import h3
 import matplotlib.cm as cm
+import matplotlib.colors
 import matplotlib.colors as mpl_colors
 import pandas as pd
 from dotenv import load_dotenv
@@ -32,6 +33,12 @@ def style_heatmap(feature):
         'weight': 1,  # Set the border width
         'fillOpacity': 0.6,  # Set the fill opacity 
     }
+
+
+# Convert H3 hexagons to geographic boundaries and create DataFrame
+def _hexagon_to_polygon(hexagon):
+    boundary = h3.h3_to_geo_boundary(hexagon, True)
+    return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
 
 
 class CityPlotter():
@@ -70,11 +77,6 @@ class CityPlotter():
             geo_j = folium.GeoJson(data=geo_j, style_function=style_heatmap)
             geo_j.add_to(self.map)
 
-    # Convert H3 hexagons to geographic boundaries and create DataFrame
-    def __hexagon_to_polygon(self, hexagon):
-        boundary = h3.h3_to_geo_boundary(hexagon, True)
-        return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
-
     def add_custom_hex_heatmap(self, data):
         """
         Add a custom heatmap to the map. For adding city input data, use add_hex_heatmap instead.
@@ -82,20 +84,22 @@ class CityPlotter():
         :return:
         """
         df = pd.DataFrame([
-            {"hexagon": hexagon, "count": count, "geometry": __hexagon_to_polygon(hexagon)}
+            {"hexagon": hexagon, "count": count, "geometry": _hexagon_to_polygon(hexagon)}
             for hexagon, count in data.items()
         ])
 
         maximum = df['count'].max()
+        minimum = df['count'].min()
 
         # Define a color scale
-        linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
-        opacity = 0.5
+        # linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
+        linear = cm.get_cmap("viridis")
+        opacity = 1
 
         # Add Hexagons to the map
         for _, row in df.iterrows():
-            val = row['count'] / maximum
-            color = linear(val)
+            val = (row['count'] - minimum) / (maximum - minimum)
+            color = matplotlib.colors.rgb2hex(linear(val))
             folium.Polygon(
                 locations=row['geometry'],
                 fill=True,
@@ -106,9 +110,6 @@ class CityPlotter():
                 opacity=opacity,
                 tooltip=f"{row['count']} trace points"
             ).add_to(self.map)
-
-        # Add color scale legend
-        linear.add_to(self.map)
 
     def show_map(self):
         return display(self.map)

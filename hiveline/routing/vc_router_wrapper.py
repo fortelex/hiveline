@@ -5,7 +5,7 @@ import subprocess
 from dotenv import load_dotenv
 
 load_dotenv()
-
+CURRENT_OS = platform.system() # 'Windows', 'Linux' or 'Darwin' (MacOS)
 
 def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache", use_delays=True,
                             force_graph_rebuild=False, memory_gb=4, num_threads=4,
@@ -48,14 +48,19 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
 
     try:
         # Start the process and pipe its output to the main console
-        process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
-
+        if CURRENT_OS=='Windows':
+            process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            process=None
+            raise Exception('Not yet supported for the current OS')
+            #process = subprocess.Popen(args)
         # Wait for the process to complete
         process.wait()
 
         print("[WRAPPER] Routing algorithm for sim_id %s finished" % sim_id)
 
     except Exception as e:
+        print('Exception: '+e)
         process.kill()
         print("[WRAPPER] Routing algorithm for sim_id %s killed" % sim_id)
 

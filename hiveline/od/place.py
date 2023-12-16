@@ -26,13 +26,15 @@ def only_geo_polygons(gdf):
 
 class Place():
 
-    def __init__(self, place_name: str):
+    def __init__(self, place_name: str, year: str):
         '''
         Initialize the place object, load geographical shape and tiling
         Args:
             place_name (str): the place name (ex: 'Konstanz, Germany')
+            year (str): the study year
         '''
         self.name = place_name
+        self.year = year
         self.shape = ox.geocode_to_gdf(self.name)
         self.bbox = self.shape.envelope[0]
         self.get_tiles()
@@ -41,6 +43,21 @@ class Place():
         self.data = self.tiles.copy()
         # mongo
         self.mongo_db = mongo.get_database()
+        self.load_regions()
+    
+    def merge_places(self, new_name, place_names):
+        '''
+        Extend the current place with other places (reset place data)
+        Args:
+            new_name (str): the new place name
+            place_names (list of str): the list of place names to add
+        '''
+        for p in place_names:
+            other_place = Place(p, self.year)
+            self.tiles = pd.concat([self.tiles, other_place.tiles], ignore_index=True)
+
+        self.data = self.tiles.copy()
+        self.name = new_name
         self.load_regions()
 
     def get_tiles(self, h3_resolution=8):
@@ -108,12 +125,14 @@ class Place():
         '''
         # 2 wrappers are needed to pass arguments to the decorator
         def wrapper1(loading_function):
-            def wrapper2(self): 
+            def wrapper2(self):
+                # add year prefix to fields to retrieve
+                fields_year = [self.year+'.'+f if f not in ['_id', 'nuts-3', 'shape'] else f for f in fields] 
                 # search fields in mongo, only for place regions
                 match_ids = self.data[match_field_list[0]].to_list()
-                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields)
+                result_df = mongo.search(self.mongo_db, collection, match_field_list[1], match_ids, fields_year)
                 # call loading function if the search result is empty or incomplete
-                if result_df.empty or len(result_df) < len(match_ids):
+                if result_df.empty or len(result_df.columns)<2 or len(result_df) < len(match_ids):
                     print('Data not in db, computing')
                     # split in chunks that can be computed in one go
                     chunk_size=300
@@ -134,7 +153,7 @@ class Place():
             return wrapper2
         return wrapper1
     
-    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['population'])
+    @mongo_cached(collection='tiles', match_field_list=['nuts3', 'nuts-3'], fields=['population'], extra_transformation=mongo.transform_from_mongo_extract_year)
     def load_population(self, median_imputation=True, gpkg_path=data_folder+'population_density/kontur_population_20231101.gpkg'):
         '''
         Load the population data in a GeoDataFrame and add it to self.data
@@ -236,8 +255,10 @@ class Place():
         for i, tile in destination.iterrows():
             for interest in self.zones.keys():
                 # clip zones by hex tile
-                local_zoi = gpd.clip(
-                    self.zones[interest], tile['geometry']).copy()  # zoi = zones of interest
+                if not self.zones[interest].empty:
+                    local_zoi = gpd.clip(self.zones[interest], tile['geometry']).copy()  # zoi = zones of interest
+                else:
+                    local_zoi = gpd.GeoDataFrame()
                 # compute interest area in tile
                 area = 0
                 nb_points = 0
@@ -331,6 +352,9 @@ class Place():
         self.load_zoning_data()
         self.load_parking_data()
 
+        self.export_place_to_mongo()
+        self.export_tiles_to_mongo()
+
     def plot_zoning(self, columns=['population', 'work', 'education', 'leisure'], save_name='filename'):
         '''
         Plot one or several zoning data
@@ -396,8 +420,8 @@ class Place():
         id_df = self.data[['h3', 'nuts3', 'geometry']].copy()
         id_df['geometry'] = id_df['geometry'].astype(str)
         id_df = id_df.rename(columns={'h3': '_id', 'nuts3': 'nuts-3', 'geometry':'shape'})
+        id_array = mongo.df_to_dict(id_df)
         data_df = self.data[['population', 'education', 'leisure', 'empty']].copy()
-        data_df = pd.concat([id_df, data_df],axis=1)
         data_array = mongo.df_to_dict(data_df)
         for prefix in ['work', 'parking']:
             prefix_df = self.data[[c for c in self.data.columns if prefix in c]].copy()
@@ -408,5 +432,11 @@ class Place():
             prefix_array = [{k.replace(prefix+'_', ''):v for k,v in d.items()} for d in prefix_array]
             # merge work with other data
             [d.update({prefix: prefix_array[i]}) for i, d in enumerate(data_array)]
+        # add ids and year
+        data_array_export = []
+        for i, d in enumerate(data_array):
+            ids = id_array[i]
+            ids.update({self.year: d})
+            data_array_export.append(ids)
         # push
-        mongo.push_to_collection(self.mongo_db, 'tiles', data_array)
+        mongo.push_to_collection(self.mongo_db, 'tiles', data_array_export)

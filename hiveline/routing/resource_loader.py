@@ -6,7 +6,7 @@ import bson
 import requests
 from bs4 import BeautifulSoup, NavigableString
 
-from hiveline.mongo.db import get_database
+from hiveline.mongo.db import get_database, get_place_id
 
 
 def __extract_geo_fabrik(base_url):
@@ -150,7 +150,7 @@ def __extract_location_transit_feeds(base_url):
 
 
 # todo: support mobidatalab, transit.land, navitia, ...
-def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, place_id=None, db=None,
+def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name=None, db=None,
                            skip_existing=False):
     """
     Extracts the links from given web pages and puts them into the database. At least one of geofabrik_url and
@@ -169,6 +169,9 @@ def create_place_resources(geofabrik_url=None, transitfeeds_url=None, place_name
     """
     if db is None:
         db = get_database()
+
+    place_id = get_place_id(db, place_name)
+
 
     res = db["place-resources"]
 

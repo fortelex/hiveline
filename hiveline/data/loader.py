@@ -106,7 +106,7 @@ class EurostatLoader():
         values = self.get_possible_values(dataset_id, ['TIME_PERIOD', 'geo'])
 
         # check if requested time is available
-        assert self.year in values['TIME_PERIOD'], f'This time period is not available ({self.year}).'
+        assert self.year in values['TIME_PERIOD'], f'This time period is not available ({self.year} not in {dataset_id}).'
         # check if requested locations are available
         for n in self.nuts_ids[precision]:
             assert n in values['geo'], f'This geographical area is not available ({n} not in {dataset_id}).'

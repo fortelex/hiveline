@@ -13,3 +13,4 @@ beautifulsoup4
 python-dotenv
 folium
 selenium
+seaborn

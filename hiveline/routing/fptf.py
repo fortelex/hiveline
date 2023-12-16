@@ -2,8 +2,6 @@ import datetime
 import json
 from enum import Enum
 
-import skmob
-
 supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S.%f',
                      '%Y-%m-%dT%H:%M:%S']  # first will be used for formatting
 
@@ -845,7 +843,7 @@ class Journey:
             return None
         return (arr - dep).total_seconds()
 
-    def get_trace(self, user_id=0):
+    def get_trace(self) -> list[tuple[tuple[float, float], datetime.datetime, Mode, bool]]:
         line = []
 
         for leg in self.legs:
@@ -854,12 +852,12 @@ class Journey:
                 dest_loc = get_location(leg.destination)
 
                 if origin_loc and dest_loc:
-                    line.append([origin_loc.latitude, origin_loc.longitude, leg.departure, user_id])
-                    line.append([dest_loc.latitude, dest_loc.longitude, leg.arrival, user_id])
+                    line.append(((origin_loc.longitude, origin_loc.latitude), leg.departure, leg.mode, True))
+                    line.append(((dest_loc.longitude, dest_loc.latitude), leg.arrival, leg.mode))
 
                 continue
 
-            for stopover in leg.stopovers:
+            for i, stopover in enumerate(leg.stopovers):
                 stopover_loc = get_location(stopover.stop)
 
                 t = stopover.departure
@@ -867,9 +865,9 @@ class Journey:
                     t = stopover.arrival
 
                 if stopover_loc:
-                    line.append([stopover_loc.latitude, stopover_loc.longitude, t, user_id])
+                    line.append(((stopover_loc.longitude, stopover_loc.latitude), t, leg.mode, i == 0))
 
-        return skmob.TrajDataFrame(line, latitude=0, longitude=1, datetime=2, user_id=3)
+        return line
 
 
 def journey_from_json(data: dict | str | None):

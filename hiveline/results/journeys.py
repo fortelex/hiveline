@@ -4,6 +4,8 @@ import math
 import os.path
 from typing import Callable, Generator
 
+from shapely import Polygon, Point
+
 from hiveline.mongo.db import get_database
 from hiveline.routing import fptf
 from hiveline.routing.util import ensure_directory
@@ -19,6 +21,7 @@ class Option:
         self.departure = fptf.read_datetime(result["departure"])
         self.modes = [fptf.Mode.from_string(m) for m in result["modes"]]
         self.journey = fptf.journey_from_json(result["journey"])
+        self.trace: list[tuple[tuple[float, float], datetime.datetime, fptf.Mode]] | None = None
 
     def to_dict(self):
         return {
@@ -33,7 +36,6 @@ class Option:
     def has_car(self):
         """
         Check if a route option has a car leg
-        :param option: the route option
         :return: True if the route option has a car leg, False otherwise
         """
 
@@ -44,6 +46,11 @@ class Option:
                 return True
 
         return False
+
+    def get_trace(self) -> list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]]:
+        if self.trace is None:
+            self.trace = self.journey.get_trace()
+        return self.trace
 
 
 class Vehicles:
@@ -172,6 +179,15 @@ class Journeys:
         with open(self.cache + "/" + self.sim_id + ".json", "w") as f:
             json.dump([o.to_dict() for o in options], f)
 
+    def prepare_traces(self):
+        """
+        Prepare the traces for all options
+        :return:
+        """
+        for o in self.options:
+            for option in o.options:
+                option.get_trace()
+
 
 class JourneyStats:
     def __init__(self):
@@ -209,10 +225,10 @@ class JourneyStats:
 
         total_pm = car_pm + rail_pm + bus_pm + walk_pm
 
-        car_share = car_pm / total_pm
-        rail_share = rail_pm / total_pm
-        bus_share = bus_pm / total_pm
-        walk_share = walk_pm / total_pm
+        car_share = car_pm / total_pm if total_pm > 0 else 0
+        rail_share = rail_pm / total_pm if total_pm > 0 else 0
+        bus_share = bus_pm / total_pm if total_pm > 0 else 0
+        walk_share = walk_pm / total_pm if total_pm > 0 else 0
 
         return {
             "car_share": car_share,
@@ -243,7 +259,7 @@ class JourneyStats:
         return transit_passenger_meters / total_passenger_meters
 
 
-def __approx_dist(origin: fptf.Location, destination: fptf.Location):
+def __approx_dist(origin: tuple[float, float], destination: tuple[float, float]):
     """
     Approximate the distance between two points in meters using the Haversine formula.
 
@@ -253,10 +269,10 @@ def __approx_dist(origin: fptf.Location, destination: fptf.Location):
     """
 
     # Convert latitude and longitude from degrees to radians
-    lon1 = math.radians(origin.longitude)
-    lat1 = math.radians(origin.latitude)
-    lon2 = math.radians(destination.longitude)
-    lat2 = math.radians(destination.latitude)
+    lon1 = math.radians(origin[0])
+    lat1 = math.radians(origin[1])
+    lon2 = math.radians(destination[0])
+    lat2 = math.radians(destination[1])
 
     # Radius of the Earth in kilometers
     r = 6371.0
@@ -278,21 +294,105 @@ def __approx_dist(origin: fptf.Location, destination: fptf.Location):
     return distance_meters
 
 
+def get_option_stats(option: Option, shape: Polygon | None = None) -> JourneyStats:
+    trace = option.get_trace()
+
+    if shape is not None:
+        trace = filter_trace(trace, shape)
+
+    return get_trace_stats(trace)
+
+
+def filter_trace(trace: list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]], polygon: Polygon):
+    """
+    Filter a trace to only include points within a polygon
+    :param trace: the trace
+    :param polygon: the polygon
+    :return: the filtered trace
+    """
+    contains = [polygon.contains(Point(t[0])) for t in trace]
+
+    result = []
+
+    carry_leg_start = False
+
+    for i in range(len(trace)):
+        cont = contains[i]
+        point, time, mode, is_leg_start = trace[i]
+
+        if cont:
+            is_leg_start |= carry_leg_start
+            carry_leg_start = False
+            result.append((point, time, mode, is_leg_start))
+            continue
+
+        if is_leg_start:
+            carry_leg_start = True
+            continue
+
+    return result
+
+
+def get_trace_stats(trace: list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]]) -> JourneyStats:
+    """
+    Get the stats for a journey
+    :param trace: the trace
+    :return: the stats
+    """
+    stats = JourneyStats()
+
+    for (i, (from_point, _, from_mode, is_leg_start)) in enumerate(trace[:-1]):
+        to_point, _, to_mode, _ = trace[i + 1]
+
+        if from_mode != to_mode:
+            continue
+
+        dist = __approx_dist(from_point, to_point)
+        pax = 1 if is_leg_start else 0
+
+        if from_mode == fptf.Mode.CAR:
+            stats.car_meters += dist
+            stats.car_passengers += pax
+            continue
+
+        if from_mode in rail_modes:
+            stats.rail_meters += dist
+            stats.rail_passengers += pax
+            continue
+
+        if from_mode == fptf.Mode.BUS:
+            stats.bus_meters += dist
+            stats.bus_passengers += pax
+            continue
+
+        if from_mode == fptf.Mode.BICYCLE:
+            continue
+
+        if from_mode == fptf.Mode.WALKING:
+            stats.walk_meters += dist
+            stats.walkers += pax
+            continue
+
+        print(f"Unknown mode: {from_mode}")
+
+    return stats
+
+
+def __approx_dist_fptf(origin: fptf.Location, destination: fptf.Location):
+    return __approx_dist((origin.longitude, origin.latitude), (destination.longitude, destination.latitude))
+
+
 def __get_distance(leg: fptf.Leg) -> float:
     if not leg.stopovers:
-        return __approx_dist(fptf.get_location(leg.origin), fptf.get_location(leg.destination))
+        return __approx_dist_fptf(fptf.get_location(leg.origin), fptf.get_location(leg.destination))
 
     stopover_locations = [fptf.get_location(stopover.stop) for stopover in leg.stopovers]
     stopover_locations = [loc for loc in stopover_locations if loc is not None]
 
-    distances = [__approx_dist(stopover_locations[i], stopover_locations[i + 1]) for i in
+    distances = [__approx_dist_fptf(stopover_locations[i], stopover_locations[i + 1]) for i in
                  range(len(stopover_locations) - 1)]
 
     return sum(distances)
-
-
-def get_option_stats(option: Option) -> JourneyStats:
-    return get_journey_stats(option.journey)
 
 
 def get_journey_stats(journey: fptf.Journey) -> JourneyStats:

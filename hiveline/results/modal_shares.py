@@ -5,6 +5,7 @@ import uuid
 from matplotlib import pyplot as plt
 
 import hiveline.vc.vc_extract as vc_extract
+from hiveline.od.place import Place
 from hiveline.results.journeys import Journeys, Option, Options, get_option_stats, JourneyStats
 from hiveline.routing import fptf
 
@@ -74,6 +75,21 @@ def __option_has_car(option):
     return False
 
 
+def merge_journey_stats(stats: list[JourneyStats]) -> JourneyStats:
+    result = JourneyStats()
+    result.car_meters = sum([s.car_meters for s in stats])
+    result.rail_meters = sum([s.rail_meters for s in stats])
+    result.bus_meters = sum([s.bus_meters for s in stats])
+    result.walk_meters = sum([s.walk_meters for s in stats])
+
+    result.car_passengers = sum([s.car_passengers for s in stats])
+    result.rail_passengers = sum([s.rail_passengers for s in stats])
+    result.bus_passengers = sum([s.bus_passengers for s in stats])
+    result.walkers = sum([s.walkers for s in stats])
+
+    return result
+
+
 def get_journeys_stats(journeys: Journeys, params: Params = None, max_count=None) -> JourneyStats:
     """
     Get the modal share for a set of route options
@@ -89,18 +105,7 @@ def get_journeys_stats(journeys: Journeys, params: Params = None, max_count=None
 
     option_stats = [get_option_stats(option) for option in journeys.iterate_selection(selection)]
 
-    result = JourneyStats()
-    result.car_meters = sum([s.car_meters for s in option_stats])
-    result.rail_meters = sum([s.rail_meters for s in option_stats])
-    result.bus_meters = sum([s.bus_meters for s in option_stats])
-    result.walk_meters = sum([s.walk_meters for s in option_stats])
-
-    result.car_passengers = sum([s.car_passengers for s in option_stats])
-    result.rail_passengers = sum([s.rail_passengers for s in option_stats])
-    result.bus_passengers = sum([s.bus_passengers for s in option_stats])
-    result.walkers = sum([s.walkers for s in option_stats])
-
-    return result
+    return merge_journey_stats(option_stats)
 
 
 def push_stats_to_db(db, sim_id, stats: JourneyStats, meta=None):
@@ -123,7 +128,7 @@ def push_stats_to_db(db, sim_id, stats: JourneyStats, meta=None):
     return doc
 
 
-def plot_monte_carlo_convergence(journeys: Journeys, city_name=None, params=None):
+def plot_monte_carlo_convergence(journeys: Journeys, city_name: str, use_city_bounds=False, params=None):
     """
     Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
     :param journeys: the journeys
@@ -145,14 +150,27 @@ def plot_monte_carlo_convergence(journeys: Journeys, city_name=None, params=None
     num_to_plot = 1
     num_steps = 100
 
+    shape = None
+
+    if use_city_bounds:
+        place = Place(city_name)
+        shape = place.shape.iloc[0].geometry
+
+    t = datetime.datetime.now()
+
+    selection = journeys.get_selection(lambda options: decide(options, params))
+
+    stats = [get_option_stats(option, shape=shape) for option in journeys.iterate_selection(selection)]
+    print(f"Calculating stats took {(datetime.datetime.now() - t).total_seconds()} seconds")
+
     num_to_plot_add = int(len(journeys.options) / num_steps)
 
     modal_shares = []
     vc_count = []
 
     for i in range(num_steps):
-        stats = get_journeys_stats(journeys, params=params, max_count=num_to_plot)
-        modal_share = stats.get_all_modal_shares()
+        sub_stats = merge_journey_stats(stats[:num_to_plot])
+        modal_share = sub_stats.get_all_modal_shares()
         modal_shares.append(modal_share)
         vc_count.append(num_to_plot)
         num_to_plot += num_to_plot_add
@@ -259,7 +277,8 @@ def analyze_waling_distances(journeys: Journeys, city_name=None):
 # todo use random.systemrandom() instead of random.random() for better randomness
 if __name__ == "__main__":
     t = datetime.datetime.now()
-    jrn = Journeys("8b87b845-5d82-410c-a34d-cf5e4ceba361")
+    jrn = Journeys("bd6809da-8113-469f-91cc-501549e8df68")
     print(f"Loading journeys took {(datetime.datetime.now() - t).total_seconds()} seconds")
 
-    plot_monte_carlo_convergence(jrn, "Eindhoven, Netherlands")
+    plot_monte_carlo_convergence(jrn, "Eindhoven suburbs, Netherlands")
+    plot_monte_carlo_convergence(jrn, "Eindhoven, Netherlands", use_city_bounds=True)

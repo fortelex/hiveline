@@ -1,5 +1,4 @@
 if __name__ == "__main__":
-    import os
     import sys
 
     from dotenv import load_dotenv
@@ -7,8 +6,10 @@ if __name__ == "__main__":
     load_dotenv()
     sys.path.append(os.getenv("PROJECT_PATH"))
 
-import routing.config as config
-
+import platform
+CURRENT_OS = platform.system() # 'Windows', 'Linux' or 'Darwin' (MacOS)
+import hiveline.routing.config as config
+import os
 import subprocess
 
 import argparse
@@ -29,7 +30,7 @@ def route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False, 
     :param api_timeout: The timeout for the OTP server
     :return:
     """
-    args = ["python", config.base_path + "routing/vc_router.py", str(sim_id), "--graph-build-memory",
+    args = ["python", config.base_path + "hiveline/routing/vc_router.py", str(sim_id), "--graph-build-memory",
             str(graph_build_memory),
             "--server-memory", str(server_memory), "--num-threads", str(num_threads), "--api-timeout", str(api_timeout)]
 
@@ -49,15 +50,20 @@ def route_virtual_commuters(sim_id, use_delays=True, force_graph_rebuild=False, 
 
     try:
         # Start the process and pipe its output to the main console
-        process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
-
+        if CURRENT_OS=='Windows':
+            process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            process=None
+            raise Exception('Not yet supported for the current OS')
+            #process = subprocess.Popen(args)
         # Wait for the process to complete
         process.wait()
 
         print("[WRAPPER] Routing algorithm for sim_id %s finished" % sim_id)
 
     except Exception as e:
-        process.kill()
+        #process.kill()
+        print('Exception: '+e)
         print("[WRAPPER] Routing algorithm for sim_id %s killed" % sim_id)
 
 

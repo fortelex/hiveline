@@ -3,14 +3,14 @@ from datetime import datetime, timezone
 
 from hiveline.od.place import Place
 from hiveline.mongo.db import get_database, get_place_id
-from vc.vcgenerator import VirtualCommuterGenerator
+from hiveline.vc.vcgenerator import VirtualCommuterGenerator
 
 
-def create_simulation(place_name, pivot_date, num_virtual_commuters=2000, sim_id=None, db=None, use_parking=False,
+def create_simulation(place, pivot_date, num_virtual_commuters=2000, sim_id=None, db=None, use_parking=False,
                       drop_existing=False):
     """
     Generate a bunch of virtual commuters within a simulation and export then to the database
-    :param place_name: the place name
+    :param place: the place
     :param pivot_date: the pivot date to use for the simulation (for selection of datasets)
     :param num_virtual_commuters: the number of virtual commuters to generate
     :param use_parking: whether to use parking adjustments to vehicle usage
@@ -27,7 +27,7 @@ def create_simulation(place_name, pivot_date, num_virtual_commuters=2000, sim_id
     if sim_id is None:
         sim_id = str(uuid.uuid4())
 
-    place_id = get_place_id(db, place_name)
+    place_id = get_place_id(db, place.name)
 
     # Export simulation to mongo db
     db["simulations"].insert_one({
@@ -39,8 +39,8 @@ def create_simulation(place_name, pivot_date, num_virtual_commuters=2000, sim_id
     print('Simulation inserted to mongo')
 
     # Virtual commuter generator
-    city = Place(place_name)
-    vc_gen = VirtualCommuterGenerator(city)
+    #self.year = pivot_date.year #TODO
+    vc_gen = VirtualCommuterGenerator(place)
 
     print(f'Generating {num_virtual_commuters} virtual commuters')
 

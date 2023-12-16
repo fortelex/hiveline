@@ -19,9 +19,9 @@ from datetime import datetime, timedelta
 
 import bson
 
-import routing.gtfs_consistency as gtfs_consistency
-import routing.config as config
-from mongo import get_database
+import hiveline.routing.gtfs_consistency as gtfs_consistency
+import hiveline.routing.config as config
+from hiveline.mongo.db import get_database
 
 version = "2.4.0"
 file_name = "otp-" + version + "-shaded.jar"

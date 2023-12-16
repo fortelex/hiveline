@@ -92,14 +92,14 @@ def distance(a,b):
 
 
 class VirtualCommuterGenerator():
-    def __init__(self, city, year):
+    def __init__(self, city):
         '''
         Load zoning and demographic data for a given place
         Args:
             city (Place): the place to study
         '''
         self.city = city
-        self.stats = Stats(city, year)
+        self.stats = Stats(city)
         self.load_data()
         self.region = None # can change for each vc
         

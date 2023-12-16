@@ -4,7 +4,8 @@ from enum import Enum
 
 import skmob
 
-supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S']  # first will be used for formatting
+supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S.%f',
+                     '%Y-%m-%dT%H:%M:%S']  # first will be used for formatting
 
 
 def _remove_empty_keys(d):
@@ -20,6 +21,8 @@ def read_datetime(time_str):
     """
     if not time_str:
         return None
+    if isinstance(time_str, datetime.datetime):
+        return time_str
     for format in supported_formats:
         try:
             return datetime.datetime.strptime(time_str, format)
@@ -211,24 +214,6 @@ def place_from_json(data: dict | str | None):
         return station_from_json(data)
     elif typ == 'stop':
         return stop_from_json(data)
-
-
-def get_location(place: Location | Station | Stop) -> Location | None:
-    """
-    Returns the location of a place.
-    :param place: The place.
-    :return: The location.
-    """
-    if isinstance(place, Location):
-        return place
-    elif isinstance(place, Station):
-        return place.location
-    elif isinstance(place, Stop):
-        if place.location:
-            return place.location
-        elif place.station:
-            return place.station.location
-    return None
 
 
 class Region:
@@ -619,6 +604,26 @@ def stopover_from_json(data: dict | str | None):
         departure_delay=data['departureDelay'] if 'departureDelay' in data else None,
         departure_platform=data['departurePlatform'] if 'departurePlatform' in data else None
     )
+
+
+def get_location(place: Location | Station | Stop | Stopover) -> Location | None:
+    """
+    Returns the location of a place.
+    :param place: The place.
+    :return: The location.
+    """
+    if isinstance(place, Location):
+        return place
+    elif isinstance(place, Station):
+        return place.location
+    elif isinstance(place, Stop):
+        if place.location:
+            return place.location
+        elif place.station:
+            return place.station.location
+    elif isinstance(place, Stopover):
+        return get_location(place.stop)
+    return None
 
 
 class Price:

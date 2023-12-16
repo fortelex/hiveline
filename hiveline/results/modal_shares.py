@@ -1,18 +1,16 @@
 import datetime
-import os
 import random
-import time
 import uuid
 
 import folium
 import matplotlib.colors
 import numpy as np
 from matplotlib import pyplot as plt
-from selenium import webdriver
 
-from hiveline.mongo.db import get_database
-import hiveline.vc.vc_extract as vc_extract
 import hiveline.results.congestion as congestion
+import hiveline.vc.vc_extract as vc_extract
+from hiveline.mongo.db import get_database
+from hiveline.results.journeys import Journeys, Option, Options, get_option_stats, JourneyStats
 from hiveline.routing import fptf
 
 rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
@@ -33,6 +31,42 @@ class Params:
     congestion_options = congestion.CongestionOptions()
 
 
+def decide(options: Options, params: Params = None) -> Option | None:
+    """
+    Decide on a route option
+    :param options: the route options
+    :param params: the simulation parameters
+    :return: the chosen route option
+    """
+    if params is None:
+        params = Params()
+
+    would_use_car = vc_extract.would_use_motorized_vehicle(
+        options.traveller.to_dict())  # would the vc use a motorized vehicle?
+
+    has_car = vc_extract.has_motor_vehicle(options.traveller.to_dict())  # does the vc have a motorized vehicle?
+
+    if not has_car and random.random() < params.car_ownership_override:
+        has_car = True
+        would_use_car = True
+
+    if not would_use_car and has_car and random.random() < params.car_usage_override:
+        would_use_car = True
+
+    valid_options = options.options
+
+    if not would_use_car:
+        valid_options = [o for o in valid_options if not o.has_car()]
+
+    if len(valid_options) == 0:
+        return None
+
+    durations = [o.journey.duration() for o in valid_options]
+    durations = [d if d is not None else 0 for d in durations]
+
+    return valid_options[durations.index(min(durations))]  # choose the fastest option
+
+
 def __option_has_car(option):
     """
     Check if a route option has a car leg
@@ -47,7 +81,35 @@ def __option_has_car(option):
     return False
 
 
-def get_option_stats(route_options, mask=None, delay_set=None, out_selection=None, params=None):
+def get_journeys_stats(journeys: Journeys, params: Params = None) -> JourneyStats:
+    """
+    Get the modal share for a set of route options
+    :param journeys: the journeys
+    :param params: (optional) the simulation parameters
+    :return: a dictionary with the modal share
+    """
+    if params is None:
+        params = Params()
+
+    selection = journeys.get_selection(lambda options: decide(options, params))
+
+    option_stats = [get_option_stats(option) for option in journeys.iterate_selection(selection)]
+
+    result = JourneyStats()
+    result.car_meters = sum([s.car_meters for s in option_stats])
+    result.rail_meters = sum([s.rail_meters for s in option_stats])
+    result.bus_meters = sum([s.bus_meters for s in option_stats])
+    result.walk_meters = sum([s.walk_meters for s in option_stats])
+
+    result.car_passengers = sum([s.car_passengers for s in option_stats])
+    result.rail_passengers = sum([s.rail_passengers for s in option_stats])
+    result.bus_passengers = sum([s.bus_passengers for s in option_stats])
+    result.walkers = sum([s.walkers for s in option_stats])
+
+    return result
+
+
+def get_stats_from_route_options(route_options, mask=None, delay_set=None, out_selection=None, params=None):
     """
     Get the modal share for a set of route options
     :param route_options: the route options
@@ -228,7 +290,7 @@ def get_sim_stats(sim_id, params=None, db=None):
 
     results = route_options.find({"sim-id": sim_id})
 
-    stats, _ = get_option_stats(results, params=params)
+    stats, _ = get_stats_from_route_options(results, params=params)
 
     return stats
 
@@ -316,7 +378,7 @@ def run_decisions(db, sim_id, params=None):
 
     results = route_options.find({"sim-id": sim_id})
 
-    stats, _ = get_option_stats(results, params=params)
+    stats, _ = get_stats_from_route_options(results, params=params)
 
     print(stats)
 
@@ -366,7 +428,7 @@ def run_congestion_simulation(db, sim_id, params: Params):
         delay_set = congestion.get_delay_set_from_congestion(congestion_set, journeys, route_options, edges,
                                                              params.congestion_options)
 
-        stats, next_mask = get_option_stats(route_options, mask, delay_set)
+        stats, next_mask = get_stats_from_route_options(route_options, mask, delay_set)
 
         modal_share = get_transit_modal_share(stats)
 
@@ -468,47 +530,6 @@ def plot_factors(sim_id, factor_key, factors):
     plt.show()
 
 
-common_cities = [
-    {
-        "name": "Paris 2019",
-        "sim-id": "f23a4643-3bfb-44c8-8fa5-9bbd9aae880f",
-        "inhabitants": 2000000
-    },
-    {
-        "name": "Dublin 2019",
-        "sim-id": "679d7a54-7e84-49d9-aa7a-d2ff1803c41c",
-        "inhabitants": 500000
-    },
-    {
-        "name": "Dublin County 2020",
-        "sim-id": "f4153089-2217-4aea-91bd-18917355490e",  # "ae945a7c-5fa7-4312-b9c1-807cb30b3008",
-        "inhabitants": 1400000
-    },
-    {
-        "name": "Leuven 2019",
-        "sim-id": "95edfe56-f277-44fb-bf23-289c67a8e593",
-        "inhabitants": 100000
-    }
-]
-
-
-def run_modal_share_for_some_cities():
-    db = get_database()
-    params = Params()
-
-    for city in common_cities:
-        print("Running for " + city["name"])
-        params.car_usage_override = 1
-        params.num_citizens = city["inhabitants"]
-        stats = run_decisions(db, city["sim-id"], params)
-        push_stats_to_db(db, city["sim-id"], stats, {
-            "name": city["name"],
-            "inhabitants": city["inhabitants"],
-            "car_owner_override": params.car_usage_override,
-            "method": "no-congestion,leg-based counts,car usage override"
-        })
-
-
 def plot_monte_carlo_convergence(sim_id, db=None, city_name=None, params=None):
     """
     Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
@@ -545,7 +566,7 @@ def plot_monte_carlo_convergence(sim_id, db=None, city_name=None, params=None):
     vc_count = []
 
     for i in range(num_steps):
-        stats, _ = get_option_stats(results[:num_to_plot], params=params)
+        stats, _ = get_stats_from_route_options(results[:num_to_plot], params=params)
         modal_share = get_all_modal_shares(stats)
         modal_shares.append(modal_share)
         vc_count.append(num_to_plot)
@@ -582,18 +603,6 @@ def plot_monte_carlo_convergence(sim_id, db=None, city_name=None, params=None):
     plt.show()
 
 
-def __plot_common_monte_carlo_convergence():
-    db = get_database()
-    params = Params()
-    params.car_usage_override = 0
-
-    for city in common_cities:
-        print("Running for " + city["name"])
-        params.num_citizens = city["inhabitants"]
-
-        plot_monte_carlo_convergence(city["sim-id"], db, city["name"], params)
-
-
 def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=None):
     """
     Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
@@ -622,7 +631,7 @@ def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=No
 
     for i in range(num_steps):
         print("Running for " + str(num_to_plot) + " results")
-        stats, _ = get_option_stats(results[:num_to_plot], params=params)
+        stats, _ = get_stats_from_route_options(results[:num_to_plot], params=params)
         modal_share = get_transit_modal_share(stats)
         modal_shares.append(modal_share)
         vc_count.append(num_to_plot)
@@ -647,18 +656,6 @@ def __plot_transit_monte_carlo_convergence(db, sim_id, city_name=None, params=No
     plt.savefig("transit_modal_shares_" + city_name.lower().replace(" ", "") + "_1920x1080.png", dpi=100,
                 facecolor=plt.gcf().get_facecolor())
     plt.show()
-
-
-def plot_transit_monte_carlo_convergence():
-    db = get_database()
-    params = Params()
-    params.car_usage_override = 0
-
-    for city in common_cities:
-        print("Running for " + city["name"])
-        params.num_citizens = city["inhabitants"]
-
-        __plot_transit_monte_carlo_convergence(db, city["sim-id"], city["name"], params)
 
 
 def plot_congestion_for_set(f_map, congestion_set, nodes):
@@ -712,35 +709,6 @@ def plot_congestion_for_sim(f_map, sim_id, params=None):
     return plot_congestion_for_set(f_map, congestion_set, nodes)
 
 
-def plot_paris_congestion():
-    image_name = "paris_congestion.png"
-    html_file = "paris_congestion.html"
-
-    city = common_cities[0]
-
-    map_f = folium.Map(location=[48.857003, 2.3492646], zoom_start=13, tiles='CartoDB dark_matter', zoom_control=False)
-
-    params = Params()
-    params.num_citizens = city["inhabitants"]
-    params.car_usage_override = 0
-
-    plot_congestion_for_sim(map_f, city["sim-id"], params)
-
-    map_f.save(html_file)
-
-    abs_path = "file:///" + os.path.abspath(html_file)
-
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-
-    driver = webdriver.Chrome(options=options)
-    driver.set_window_size(1920, 1080)
-
-    driver.get(abs_path)
-    time.sleep(0.2)
-    driver.save_screenshot(image_name)
-
-
 def analyze_waling_distances(city):
     sim_id = city["sim-id"]
     city_name = city["name"]
@@ -754,7 +722,7 @@ def analyze_waling_distances(city):
 
     choices = [None] * len(journeys)
 
-    get_option_stats(journeys, out_selection=choices, params=params)
+    get_stats_from_route_options(journeys, out_selection=choices, params=params)
     walk_distances = []
 
     for (i, journey) in enumerate(journeys):
@@ -789,31 +757,6 @@ def analyze_waling_distances(city):
     plt.show()
 
 
-def temp_dublin_calibration():
-    # run modal share for dublin county
-    db = get_database()
-    params = Params()
-
-    city = common_cities[2]
-
-    params.num_citizens = city["inhabitants"]
-
-    print("Running for " + city["name"])
-
-    params.car_usage_override = 0
-    params.car_ownership_override = 0.3  # 0.41
-
-    params.num_citizens = city["inhabitants"]
-    stats = run_decisions(db, city["sim-id"], params)
-
-    transit_modal_share = get_transit_modal_share(stats)
-
-    print(transit_modal_share)
-
-    modal_shares = get_all_modal_shares(stats)
-    print(modal_shares)
-
-
 # todo use random.systemrandom() instead of random.random() for better randomness
 if __name__ == "__main__":
     # plot_vehicle_factors("735a3098-8a19-4252-9ca8-9372891e90b3")
@@ -826,6 +769,28 @@ if __name__ == "__main__":
     # plot_transit_monte_carlo_convergence()
     # plot_paris_congestion()
     # analyze_waling_distances(common_cities[2])
-    plot_monte_carlo_convergence("8b87b845-5d82-410c-a34d-cf5e4ceba361", city_name="Eindhoven 2022 Bifrost")
-    plot_monte_carlo_convergence("bd6809da-8113-469f-91cc-501549e8df68", city_name="Eindhoven 2022 OTP")
+    # city = Place("Eindhoven, Netherlands")
+    #
+    # bounds = city.shape.boundary.__geo_interface__
+    #
+    # plot_monte_carlo_convergence("8b87b845-5d82-410c-a34d-cf5e4ceba361", city_name="Eindhoven 2022 Bifrost")
+    # plot_monte_carlo_convergence("bd6809da-8113-469f-91cc-501549e8df68", city_name="Eindhoven 2022 OTP")
     # plot_transit_monte_carlo_convergence()
+
+    t = datetime.datetime.now()
+    jrn = Journeys("8b87b845-5d82-410c-a34d-cf5e4ceba361")
+    print(f"Loading journeys took {(datetime.datetime.now() - t).total_seconds()} seconds")
+
+    stats = get_journeys_stats(jrn)
+
+    print(stats.to_dict())
+
+    print(stats.get_all_modal_shares())
+
+    stats = run_decisions(get_database(), "8b87b845-5d82-410c-a34d-cf5e4ceba361", Params())
+
+    print(stats)
+
+    print(get_all_modal_shares(stats))
+
+    print(get_transit_modal_share(stats))

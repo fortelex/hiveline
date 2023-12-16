@@ -1,9 +1,8 @@
 import argparse
-import math
+import datetime
 import threading
 import time
 import uuid
-import datetime
 
 import pymongo.errors
 
@@ -202,117 +201,6 @@ def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list
     return options
 
 
-def __approx_dist(origin: fptf.Location, destination: fptf.Location):
-    """
-    Approximate the distance between two points in meters using the Haversine formula.
-
-    :param origin: object with fields lon, lat
-    :param destination: object with fields lon, lat
-    :return: distance in meters
-    """
-
-    # Convert latitude and longitude from degrees to radians
-    lon1 = math.radians(origin.longitude)
-    lat1 = math.radians(origin.latitude)
-    lon2 = math.radians(destination.longitude)
-    lat2 = math.radians(destination.latitude)
-
-    # Radius of the Earth in kilometers
-    r = 6371.0
-
-    # Difference in coordinates
-    d_lon = lon2 - lon1
-    d_lat = lat2 - lat1
-
-    # Haversine formula
-    a = math.sin(d_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    # Distance in kilometers
-    distance_km = r * c
-
-    # Convert to meters
-    distance_meters = distance_km * 1000
-
-    return distance_meters
-
-
-def __extract_mode_data(leg: fptf.Leg):
-    """
-    Extract relevant data from a leg.
-    :param leg: The trip leg of an itinerary
-    :return: an object with mode, duration (in seconds) and distance (in meters)
-    """
-    mode = leg.mode.to_string()
-    departure = leg.departure
-    if leg.departure_delay:
-        departure += datetime.timedelta(seconds=leg.departure_delay)
-    arrival = leg.arrival
-    if leg.arrival_delay:
-        arrival += datetime.timedelta(seconds=leg.arrival_delay)
-    duration = (arrival - departure).total_seconds()
-
-    origin = fptf.get_location(leg.origin)
-    destination = fptf.get_location(leg.destination)
-
-    # TODO: distance can be better calculated using stopovers
-    distance = __approx_dist(origin, destination)
-
-    return {
-        "mode": mode,
-        "duration": duration,
-        "distance": distance
-    }
-
-
-def __extract_relevant_data(route_result: RouteResult):
-    """
-    Extract relevant data from a route details object.
-
-    :param route_result: Route details. The output of __get_route_option
-    :return: An object with route-option-id, route-duration (in s), route-changes, route-delay (in s),
-             route-recalculated, modes (array of objects with mode, duration (in s) and distance (in m))
-    """
-    journey = route_result.journey
-
-    if len(journey.legs) == 0:
-        return {
-            "route-option-id": route_result.id,
-            "route-duration": 0,
-            "route-changes": 0,
-            "route-delay": 0,
-            "modes": []
-        }
-
-    departure = journey.legs[0].departure
-    arrival = journey.legs[-1].arrival
-    delay = journey.legs[-1].arrival_delay
-    if delay is None:
-        delay = 0
-
-    duration = (arrival - departure + datetime.timedelta(seconds=delay)).total_seconds()
-
-    changes = -1
-
-    for leg in journey.legs:
-        if leg.mode == fptf.Mode.WALKING:
-            continue
-        changes += 1
-
-    if changes == -1:
-        changes = 0
-
-    modes = [__extract_mode_data(leg) for leg in journey.legs]
-
-    return {
-        "route-option-id": route_result.id,
-        "route-duration": duration,
-        "route-changes": changes,
-        "route-delay": delay,
-        "modes": modes
-    }
-
-
 def __no_active_jobs(db, sim_id):
     jobs_coll = db["route-calculation-jobs"]
     return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
@@ -331,6 +219,7 @@ def __process_virtual_commuter(client, route_results_coll, route_options_coll, v
         "sim-id": vc["sim-id"],
         "created": datetime.datetime.now(),
         "options": [option.to_dict() for option in options],
+        "traveller": vc_extract.extract_traveller(vc),
         "meta": meta
     }
 
@@ -340,22 +229,6 @@ def __process_virtual_commuter(client, route_results_coll, route_options_coll, v
         if "_id" in route_results:
             del route_results["_id"]
         route_results_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_results})
-
-    # extract relevant data for decision making
-    route_options = {
-        "vc-id": vc["vc-id"],
-        "sim-id": vc["sim-id"],
-        "created": datetime.datetime.now(),
-        "traveller": vc_extract.extract_traveller(vc),
-        "options": [__extract_relevant_data(option) for option in options],
-    }
-
-    try:
-        route_options_coll.insert_one(route_options)
-    except pymongo.errors.DuplicateKeyError:
-        if "_id" in route_options:
-            del route_options["_id"]
-        route_options_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_options})
 
 
 def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_fac=1):
@@ -417,7 +290,8 @@ def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_f
 
             # set status to failed
             jobs_coll.update_one({"_id": job["_id"]},
-                                 {"$set": {"status": "error", "error": short_description, "finished": datetime.datetime.now()}})
+                                 {"$set": {"status": "error", "error": short_description,
+                                           "finished": datetime.datetime.now()}})
 
             consecutive_error_number += 1
 

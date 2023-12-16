@@ -16,7 +16,7 @@ def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, t
     if only_use_selected:
         result_options = congestion.find_matching_route_options(db, sim_id, results)
 
-        modal_shares.get_option_stats(result_options, out_selection=selection)
+        modal_shares.get_stats_from_route_options(result_options, out_selection=selection)
 
     print("Extracting traces...")
     all_to_plot = traces.extract_traces(results, selection=selection)
@@ -67,7 +67,7 @@ def plot_all(sim_id, only_use_selected=False):
     if only_use_selected:
         result_options = congestion.find_matching_route_options(db, sim_id, results)
 
-        modal_shares.get_option_stats(result_options, out_selection=selection)
+        modal_shares.get_stats_from_route_options(result_options, out_selection=selection)
 
     print("Extracting traces...")
     all_to_plot = traces.extract_traces(results, selection=selection)

@@ -1,4 +1,3 @@
-import threading
 from datetime import datetime
 
 import h3
@@ -164,11 +163,6 @@ def __extract_trace(result, color_map, selection=None, i=0, max_points_per_trace
     return traces
 
 
-def __extract_traces(route_results, start, trace_lists, color_map, selection=None, max_points_per_trace=100):
-    for j, result in enumerate(route_results):
-        trace_lists[start + j] = __extract_trace(result, color_map, selection, start + j, max_points_per_trace)
-
-
 def extract_traces(route_results: list[dict], selection=None, max_points_per_trace=100):
     """
     Extracts trace_lists from route results
@@ -184,29 +178,7 @@ def extract_traces(route_results: list[dict], selection=None, max_points_per_tra
         "rail": "#F7F4D3"
     }
 
-    thread_count = 50
+    trace_lists = [__extract_trace(result, color_map, selection, j, max_points_per_trace) for (j, result) in
+                   enumerate(route_results)]
 
-    batch_size = int(len(route_results) / thread_count)
-    if thread_count * batch_size < len(route_results):
-        batch_size += 1
-
-    batches = [(route_results[i:i + batch_size], i) for i in range(0, len(route_results), batch_size)]
-
-    trace_lists: list[None | list[dict]] = [None for _ in range(len(route_results))]
-
-    threads = []
-
-    for i in range(thread_count):
-        if i >= len(batches):
-            break
-        batch, start = batches[i]
-        thread = threading.Thread(target=__extract_traces, args=(batch, start, trace_lists, color_map, selection, max_points_per_trace))
-        thread.start()
-        threads.append(thread)
-
-    for thread in threads:
-        thread.join()
-
-    traces = [trace for trace_list in trace_lists for trace in trace_list if trace is not None]
-
-    return traces
+    return [trace for trace_list in trace_lists for trace in trace_list]

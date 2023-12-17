@@ -119,15 +119,14 @@ def fix_authorities(gtfs_path):
     return True
 
 
-def fix_gtfs(gtfs_path):
+def fix_gtfs(gtfs_path, temp_dir):
     """
     Fix a GTFS zip file. This will unzip the file, fix it, and re-zip it. It will remove any invalid data. For example
     if there are transfers that reference stops that don't exist, they will be removed.
     :param gtfs_path: The path to the GTFS zip file
+    :param temp_dir: The path to a temporary directory to use
     :return:
     """
-    temp_dir = config.data_path + "/temp"
-
     print("Fixing GTFS: " + gtfs_path)
 
     unzip_gtfs(gtfs_path, temp_dir)

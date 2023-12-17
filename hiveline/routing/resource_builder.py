@@ -8,18 +8,18 @@ from hiveline.routing.servers.routing_server import RoutingServerConfig
 from hiveline.routing.util import ensure_directory
 
 
-def build_resources(data_dir: str, place, target_date: datetime.date) -> RoutingServerConfig:
+def build_resources(data_dir: str, place, sim_date: datetime.date) -> RoutingServerConfig:
     """
     Builds the graph for the given place and target date. If the graph already exists, it will not be rebuilt, unless
     force_rebuild=True.
     :param data_dir: The directory where the data should be stored
     :param place: The place resource object
-    :param target_date: The target date
+    :param sim_date: The target date
     :return: otp_version: The version of OTP used, graph_file: The file name of the graph, osm_source: The resource
              object of the OSM file, gtfs_sources: An array of resource objects of the GTFS files
     """
-    osm_resource = __ensure_closest_pbf_downloaded(data_dir, place, target_date)
-    gtfs_resources = __ensure_closest_gtfs_downloaded(data_dir, place, target_date)
+    osm_resource = __ensure_closest_pbf_downloaded(data_dir, place, sim_date)
+    gtfs_resources = __ensure_closest_gtfs_downloaded(data_dir, place, sim_date)
 
     print("OSM resource: " + str(osm_resource))
     print("GTFS resources: " + str(gtfs_resources))
@@ -27,12 +27,12 @@ def build_resources(data_dir: str, place, target_date: datetime.date) -> Routing
     if osm_resource is None or gtfs_resources is None or len(gtfs_resources) == 0:
         raise Exception("No matching OSM or GTFS resource found")
 
-    graph_id = str(place["_id"]) + "-" + target_date.strftime("%Y-%m-%d")
+    graph_id = str(place["_id"]) + "-" + sim_date.strftime("%Y-%m-%d")
 
     osm_files = [osm_resource["file"]]
     gtfs_files = [gtfs_resource["file"] for gtfs_resource in gtfs_resources]
 
-    return RoutingServerConfig(graph_id, target_date, data_dir, gtfs_files, osm_files)
+    return RoutingServerConfig(graph_id, sim_date, data_dir, gtfs_files, osm_files)
 
 
 def __get_closest_link(link_list, target_date: datetime.date, ignore_future: bool = False):
@@ -51,9 +51,9 @@ def __get_closest_link(link_list, target_date: datetime.date, ignore_future: boo
 
     for i in range(len(link_list)):
         link = link_list[i]
-        if ignore_future and link["date"] > target_date:
+        if ignore_future and link["date"].date() > target_date:
             continue
-        dist = abs(link["date"] - target_date)
+        dist = abs(link["date"].date() - target_date)
         if min_dist is None or dist < min_dist:
             min_dist = dist
             min_dist_index = i
@@ -96,19 +96,19 @@ def __ensure_data_downloaded(data_dir: str, link_object, file_name_extension: st
     return target_file_name, True
 
 
-def __ensure_closest_pbf_downloaded(data_dir, place, target_date):
+def __ensure_closest_pbf_downloaded(data_dir, place, sim_date):
     """
     Ensures that the closest OSM file to a target date is downloaded.
     :param data_dir: The directory where the data should be stored
     :param place: The place resource object. Must have an "osm" key.
-    :param target_date: The target date
+    :param sim_date: The target date
     :return: file: The file name of the downloaded file, source: The source of the file, date: The date of the file
              None if no OSM file was found
     """
     if data_dir.endswith("/"):
         data_dir = data_dir[:-1]
 
-    closest_osm_link = __get_closest_link(place["osm"], target_date)
+    closest_osm_link = __get_closest_link(place["osm"], sim_date)
     if closest_osm_link is None:
         print("No OSM link found")
         return None
@@ -123,19 +123,19 @@ def __ensure_closest_pbf_downloaded(data_dir, place, target_date):
     }
 
 
-def __ensure_closest_gtfs_downloaded(data_dir, place, target_date):
+def __ensure_closest_gtfs_downloaded(data_dir, place, sim_date):
     """
     Ensures that the closest GTFS file to a target date is downloaded.
     :param data_dir: The directory where the data should be stored
     :param place: The place resource object. Must have a "gtfs" key.
-    :param target_date: The target date
+    :param sim_date: The target date
     :return: list of objects with fields:
              file: The file name of the downloaded file, source: The source of the file, date: The date of the file
     """
     links = []
 
     for provider, link_list in place["gtfs"].items():
-        closest_gtfs_link = __get_closest_link(link_list, target_date, True)
+        closest_gtfs_link = __get_closest_link(link_list, sim_date, True)
         if closest_gtfs_link is None:
             continue
 

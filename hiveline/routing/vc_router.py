@@ -356,10 +356,10 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
 
     sim = db["simulations"].find_one({"sim-id": sim_id})
     place_resources = db["place-resources"].find_one({"place-id": sim["place-id"]})
-    pivot_date = sim["pivot-date"]
+    sim_date = datetime.datetime.strptime(sim["sim-date"], "%Y-%m-%d").date()
 
     print("Building resources")
-    config = resource_builder.build_resources(data_dir, place_resources, pivot_date)
+    config = resource_builder.build_resources(data_dir, place_resources, sim_date)
     print("Built resources. Building graph")
 
     server_files = server.build(config, force_rebuild=force_graph_rebuild)

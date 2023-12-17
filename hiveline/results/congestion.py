@@ -4,7 +4,6 @@ import seaborn as sns
 
 import hiveline.vc.vc_extract as vc_extract
 from hiveline.mongo.db import get_database
-from hiveline.results.modal_shares import Params
 
 
 class CongestionOptions:
@@ -178,14 +177,12 @@ def get_edges(db, sim_id, journeys):
 
     sim = db["simulations"].find_one({"sim-id": sim_id})
 
-    pivot_time = sim["pivot-date"]
-    pivot_time.replace(tzinfo=None)
-    date_str = pivot_time.isoformat()
+    sim_date = sim["sim-date"]
 
     edges_to_download = []
 
     for (origin, destination), _ in usage_set.items():
-        edges_to_download.append((origin, destination, date_str))
+        edges_to_download.append((origin, destination, sim_date))
 
     # split into chunks of 1000
     chunks = [edges_to_download[x:x + 1000] for x in range(0, len(edges_to_download), 1000)]
@@ -217,9 +214,7 @@ def get_nodes(db, sim_id, edges):
     """
     sim = db["simulations"].find_one({"sim-id": sim_id})
 
-    pivot_time = sim["pivot-date"]
-    pivot_time.replace(tzinfo=None)
-    date_str = pivot_time.isoformat()
+    sim_date = sim["sim-date"]
 
     node_set = set()
 
@@ -238,7 +233,7 @@ def get_nodes(db, sim_id, edges):
     node_coll = db["street-node-data"]
 
     for chunk in chunks:
-        node_ids = [str(node) + "-" + date_str for node in chunk]
+        node_ids = [str(node) + "-" + sim_date for node in chunk]
 
         result = list(node_coll.find({"node-id": {"$in": node_ids}}))
 

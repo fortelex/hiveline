@@ -1,4 +1,5 @@
-from datetime import datetime
+import time
+from datetime import datetime, date
 
 
 def extract_origin_loc(vc):
@@ -23,14 +24,14 @@ def extract_destination_loc(vc):
     return [destination["lon"], destination["lat"]]
 
 
-def extract_departure(vc, sim):
+def extract_departure(vc, sim) -> datetime:
     """
     Extract the departure time from a virtual commuter or simulation
     :param vc: the virtual commuter
     :param sim: the simulation
     :return: the departure time
     """
-    return sim["pivot-date"]
+    return datetime.strptime(sim["sim-date"] + "T08:00:00Z", "%Y-%m-%dT%H:%M:%SZ")
 
 
 def has_motor_vehicle(vc):

@@ -585,7 +585,7 @@ type Simulation struct {
 	Id               primitive.ObjectID `bson:"_id" json:"id"`
 	SimId            string             `bson:"sim-id" json:"sim-id"`
 	PlaceId          primitive.ObjectID `bson:"place-id" json:"place-id"`
-	PivotDate        time.Time          `bson:"pivot-date" json:"pivot-date"`
+	SimDate          time.Time          `bson:"sim-date" json:"sim-date"`
 	Created          time.Time          `bson:"created" json:"created"`
 	CreatedBy        string             `bson:"created-by" json:"created-by"`
 	CreatedFromSimId string             `bson:"created-from-sim-id" json:"created-from-sim-id"`

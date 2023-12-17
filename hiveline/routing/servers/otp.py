@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import platform
 import signal
 import subprocess
 import threading
@@ -9,6 +10,7 @@ import urllib.request
 from hiveline.routing.servers.routing_server import RoutingServer, RoutingServerConfig
 from hiveline.routing.util import ensure_directory, wait_for_line, iterate_output
 
+CURRENT_OS = platform.system()
 
 class OpenTripPlannerRoutingServer(RoutingServer):
     def __init__(self, memory_gb=4, api_timeout=20, debug=False):
@@ -85,11 +87,14 @@ class OpenTripPlannerRoutingServer(RoutingServer):
 
         print("Starting server...")
 
+        args = ["java", "-Xmx" + str(self.memory_gb) + "G", "-jar", bin_path + "/" + self.otp_file_name, "--load",
+             bin_path + "/"]
+
+        print(args)
+
         self.process = subprocess.Popen(
-            ["java", "-Xmx" + str(self.memory_gb) + "G", "-jar", bin_path + "/" + self.otp_file_name, "--load",
-             bin_path + "/"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, encoding="utf-8",
-            shell=True)
+            args,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, encoding="utf-8")
 
         if self.process is None:
             print("Server not started")
@@ -109,15 +114,22 @@ class OpenTripPlannerRoutingServer(RoutingServer):
             print("Server started")
         except Exception as e:
             print("Server startup failed")
+            for line in self.process.stderr.readlines():
+                print(line)
+
             print(e)
             self.stop()
+            raise e
 
     def stop(self):
         if self.process is not None:
             print("Terminating server...")
 
             try:
-                os.kill(self.process.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
+                if CURRENT_OS == 'Linux' or CURRENT_OS == 'Darwin':
+                    self.process.kill()
+                elif CURRENT_OS == 'Windows':
+                    os.kill(self.process.pid, signal.CTRL_C_EVENT)  # clean shutdown with CTRL+C
 
                 self.process.wait()
             except KeyboardInterrupt:

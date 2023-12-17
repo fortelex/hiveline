@@ -1,11 +1,22 @@
+if __name__ == "__main__":
+    import sys
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    sys.path.append(os.getenv("PROJECT_PATH"))
+
 import argparse
 import os
 import platform
 import subprocess
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from hiveline.routing import vc_router
+
 
 load_dotenv()
 CURRENT_OS = platform.system()  # 'Windows', 'Linux' or 'Darwin' (MacOS)
@@ -15,7 +26,7 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
                             force_graph_rebuild=False, memory_gb=4, num_threads=4,
                             reset_jobs=False, reset_failed=False, timeout=20):
     """
-    Run the routing algorithm for a virtual commuter set. It will spawn a new OTP process and run the routing algorithm
+    Run the routing algorithm for a virtual commuter set. It will spawn a new process and run the routing algorithm
     for all open jobs in the database. It will also update the database with the results of the routing algorithm.
     :param sim_id: The virtual commuter set id
     :param profile: The profile to use for the routing server and client (opentripplanner, bifrost, ...)
@@ -29,6 +40,11 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
     :param timeout: The timeout for the client (in seconds), server will use half of that as API timeout
     :return:
     """
+    if CURRENT_OS == 'Linux':
+        vc_router.route_virtual_commuters(sim_id, profile, data_dir, use_delays, force_graph_rebuild, memory_gb,
+                                          num_threads, reset_jobs, reset_failed, timeout)
+        return
+
     base_path = os.getenv("PROJECT_PATH")
     if base_path.endswith("/"):
         base_path = base_path[:-1]
@@ -54,12 +70,7 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
 
     try:
         # Start the process and pipe its output to the main console
-        if CURRENT_OS == 'Windows':
-            process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
-        else:
-            process = None
-            raise Exception('Not yet supported for the current OS')
-            # process = subprocess.Popen(args)
+        process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
         # Wait for the process to complete
         process.wait()
 

@@ -1,4 +1,3 @@
-
 if __name__ == "__main__":
     import sys
     import os
@@ -392,8 +391,8 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
         print("Server stopped")
 
 
-def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4, api_timeout=10,
-                                client_timeout=20) -> [RoutingServer, RoutingClient]:
+def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4, api_timeout: float = 10,
+                                client_timeout: float = 20) -> [RoutingServer, RoutingClient]:
     if profile_str == "opentripplanner":
         from hiveline.routing.servers.otp import OpenTripPlannerRoutingServer
         from hiveline.routing.clients.otp import OpenTripPlannerRoutingClient
@@ -412,13 +411,39 @@ def __get_profile_without_delay(profile_str: str, threads=12, memory_gb: int = 4
     raise Exception("Unknown profile: " + profile_str)
 
 
-def __get_profile(profile_str: str, use_delays: bool = False, threads=4, memory_gb: int = 4, api_timeout=10,
-                  client_timeout=20) -> [RoutingServer, RoutingClient]:
+def __get_profile(profile_str: str, use_delays: bool = False, threads=4, memory_gb: int = 4, api_timeout: float = 10,
+                  client_timeout: float = 20) -> [RoutingServer, RoutingClient]:
     [server, client] = __get_profile_without_delay(profile_str, threads=threads, memory_gb=memory_gb,
                                                    api_timeout=api_timeout, client_timeout=client_timeout)
     if use_delays:
         return server, DelayedRoutingClient(client)
     return server, client
+
+
+def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache", use_delays=True,
+                            force_graph_rebuild=False, memory_gb=4, num_threads=4,
+                            reset_jobs=False, reset_failed=False, timeout=20):
+    """
+    Run the routing algorithm for a virtual commuter set. It will spawn a new process and run the routing algorithm
+    for all open jobs in the database. It will also update the database with the results of the routing algorithm.
+    :param sim_id: The virtual commuter set id
+    :param profile: The profile to use for the routing server and client (opentripplanner, bifrost, ...)
+    :param data_dir: The directory where the data should be stored
+    :param use_delays: Whether to use delays or not
+    :param force_graph_rebuild: Whether to force a rebuild of the graph or not
+    :param memory_gb: The amount of memory to use for the build process and server
+    :param num_threads: The number of threads to use for sending route requests to the server
+    :param reset_jobs: Whether to reset all jobs to pending or not
+    :param reset_failed: Whether to reset all failed jobs to pending or not
+    :param timeout: The timeout for the client (in seconds), server will use half of that as API timeout
+    :return:
+    """
+
+    profile_server, profile_client = __get_profile(profile, use_delays, threads=num_threads, memory_gb=memory_gb,
+                                                   client_timeout=timeout, api_timeout=timeout / 2)
+    __route_virtual_commuters(profile_server, profile_client, sim_id, data_dir=data_dir, use_delays=use_delays,
+                              force_graph_rebuild=force_graph_rebuild, num_threads=num_threads, reset_jobs=reset_jobs,
+                              reset_failed=reset_failed)
 
 
 if __name__ == "__main__":
@@ -444,17 +469,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    profile_server, profile_client = __get_profile(args.profile, use_delays=not args.no_delays,
-                                                   threads=args.num_threads,
-                                                   memory_gb=args.memory_db, api_timeout=args.timeout / 2,
-                                                   client_timeout=args.timeout)
     try:
-        __route_virtual_commuters(profile_server, profile_client, args.sim_id, data_dir=args.data_dir,
-                                  use_delays=not args.no_delays,
-                                  force_graph_rebuild=args.force_graph_rebuild, num_threads=args.num_threads,
-                                  reset_jobs=args.reset_jobs, reset_failed=args.reset_failed,
-                                  db=get_database())
+        route_virtual_commuters(args.sim_id, args.profile, args.data_dir, not args.no_delays, args.force_graph_rebuild,
+                                args.memory_db, args.num_threads, args.reset_jobs, args.reset_failed, args.timeout)
     except Exception as e:
         print("Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " + str(e))
         time.sleep(10000)
-

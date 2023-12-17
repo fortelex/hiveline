@@ -109,6 +109,8 @@ class DelayedRoutingClient(RoutingClient):
         :param modes: list of modes to use for the trip (e.g. ["WALK", "TRANSIT"])
         :return: a delayed journey
         """
+        raise Exception("delays not currently supported. please use the --no-delays flag or set use_delays=False")
+
         journey = _get_fastest_journey(self.base.get_journeys(from_lat, from_lon, to_lat, to_lon, departure, modes))
 
         if journey is None:

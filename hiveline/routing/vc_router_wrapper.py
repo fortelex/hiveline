@@ -1,11 +1,15 @@
 import argparse
 import os
+import platform
 import subprocess
+import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
-CURRENT_OS = platform.system() # 'Windows', 'Linux' or 'Darwin' (MacOS)
+CURRENT_OS = platform.system()  # 'Windows', 'Linux' or 'Darwin' (MacOS)
+
 
 def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache", use_delays=True,
                             force_graph_rebuild=False, memory_gb=4, num_threads=4,
@@ -29,11 +33,13 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
     if base_path.endswith("/"):
         base_path = base_path[:-1]
 
+    data_dir = Path.joinpath(Path(base_path), data_dir).__str__()
+
     args = ["python", base_path + "/hiveline/routing/vc_router.py", str(sim_id), "--profile", profile, "--data-dir",
             data_dir, "--memory", str(memory_gb), "--num-threads", str(num_threads), "--timeout", str(timeout)]
 
-    if use_delays:
-        args.append("--use-delays")
+    if not use_delays:
+        args.append("--no-delays")
 
     if force_graph_rebuild:
         args.append("--force-graph-rebuild")
@@ -48,20 +54,20 @@ def route_virtual_commuters(sim_id, profile="opentripplanner", data_dir="./cache
 
     try:
         # Start the process and pipe its output to the main console
-        if CURRENT_OS=='Windows':
+        if CURRENT_OS == 'Windows':
             process = subprocess.Popen(args, creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
-            process=None
+            process = None
             raise Exception('Not yet supported for the current OS')
-            #process = subprocess.Popen(args)
+            # process = subprocess.Popen(args)
         # Wait for the process to complete
         process.wait()
 
         print("[WRAPPER] Routing algorithm for sim_id %s finished" % sim_id)
 
     except Exception as e:
-        print('Exception: '+e)
-        process.kill()
+        print('Exception: ' + e)
+        # process.kill()
         print("[WRAPPER] Routing algorithm for sim_id %s killed" % sim_id)
 
 

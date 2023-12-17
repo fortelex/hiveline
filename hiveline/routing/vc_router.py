@@ -1,3 +1,13 @@
+
+if __name__ == "__main__":
+    import sys
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    sys.path.append(os.getenv("PROJECT_PATH"))
+
 import argparse
 import datetime
 import threading
@@ -438,9 +448,13 @@ if __name__ == "__main__":
                                                    threads=args.num_threads,
                                                    memory_gb=args.memory_db, api_timeout=args.timeout / 2,
                                                    client_timeout=args.timeout)
+    try:
+        __route_virtual_commuters(profile_server, profile_client, args.sim_id, data_dir=args.data_dir,
+                                  use_delays=not args.no_delays,
+                                  force_graph_rebuild=args.force_graph_rebuild, num_threads=args.num_threads,
+                                  reset_jobs=args.reset_jobs, reset_failed=args.reset_failed,
+                                  db=get_database())
+    except Exception as e:
+        print("Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " + str(e))
+        time.sleep(10000)
 
-    __route_virtual_commuters(profile_server, profile_client, args.sim_id, data_dir=args.data_dir,
-                              use_delays=not args.no_delays,
-                              force_graph_rebuild=args.force_graph_rebuild, num_threads=args.num_threads,
-                              reset_jobs=args.reset_jobs, reset_failed=args.reset_failed,
-                              db=get_database())

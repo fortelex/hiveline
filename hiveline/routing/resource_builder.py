@@ -90,6 +90,7 @@ def __ensure_data_downloaded(data_dir: str, link_object, file_name_extension: st
         return target_file_name, False
 
     print("Downloading " + link)
+
     urllib.request.urlretrieve(link, target_file_name)
 
     return target_file_name, True

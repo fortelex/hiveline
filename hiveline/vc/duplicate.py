@@ -52,6 +52,6 @@ def duplicate_simulation(db, sim_id, new_sim_id=None, new_date=None, copy_vc=Tru
 if __name__ == "__main__":
     database = get_database()
 
-    date = datetime.datetime(2019, 10, 8, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    sid = duplicate_simulation(database, "16d35b4b-eee3-44c0-a9b4-e3639d83f10a", new_date=date, copy_vc=True)
-    print(sid)
+    date = datetime.datetime(2022, 10, 4, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    sid = duplicate_simulation(database, "8b87b845-5d82-410c-a34d-cf5e4ceba361", new_date=date, copy_vc=True)
+    print(sid)  # bd6809da-8113-469f-91cc-501549e8df68

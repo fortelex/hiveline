@@ -1,3 +1,4 @@
+import datetime
 import os
 import re
 
@@ -42,7 +43,7 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
 
     sim = simulations.find_one({"sim-id": sim_id})
 
-    date_str = sim["pivot-date"].isoformat()
+    sim_date = sim["sim-date"]
     place_id = sim["place-id"]
 
     if place_name is None:
@@ -51,7 +52,7 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
         place_name = resources["place-name"]
 
     normalized_dataset_name = re.sub(r'[^A-Za-z0-9]+', " ", place_name.lower()).replace(" ", "-") \
-                              + "-" + date_str.replace(":", "") \
+                              + "-" + sim_date \
                               + ("-undirected" if undirected else "")
 
     __ensure_directory(config.data_path)
@@ -76,4 +77,4 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
         ox.save_graphml(graph, filepath=graph_file_location)
         return graph
 
-    return __get_graph(date_str, place_name, graph_file_location)
+    return __get_graph(sim_date + "T08:00:00Z", place_name, graph_file_location)

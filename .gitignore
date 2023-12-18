@@ -170,3 +170,5 @@ hiveline/data/population_density/kontur_population_20231101.gpkg
 
 # local archive folder
 _archive
+
+.idea

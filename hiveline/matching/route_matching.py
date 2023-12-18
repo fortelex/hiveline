@@ -341,8 +341,7 @@ def __dump_used_edge_metadata(db, sim_id, edge_set, graph):
 
     sim = db["simulations"].find_one({"sim-id": sim_id})
 
-    pivot_date = sim["pivot-date"]
-    pivot_date_str = pivot_date.isoformat()
+    sim_date = sim["sim-date"]
 
     edge_data_coll = db["street-edge-data"]
 
@@ -362,7 +361,7 @@ def __dump_used_edge_metadata(db, sim_id, edge_set, graph):
         if origin > destination:
             origin, destination = destination, origin
 
-        edge_id = str(origin) + "-" + str(destination) + "-" + pivot_date_str
+        edge_id = str(origin) + "-" + str(destination) + "-" + sim_date
         edge = graph.edges[origin, destination, 0].copy()
 
         if "geometry" in edge:
@@ -396,8 +395,7 @@ def __dump_used_node_metadata(db, sim_id, edge_set, graph):
 
     sim = db["simulations"].find_one({"sim-id": sim_id})
 
-    pivot_date = sim["pivot-date"]
-    pivot_date_str = pivot_date.isoformat()
+    sim_date = sim["sim-date"]
 
     node_data_coll = db["street-node-data"]
 
@@ -411,7 +409,7 @@ def __dump_used_node_metadata(db, sim_id, edge_set, graph):
             print("Progress: {:.2f}%".format(progress / node_count * 100))
             last_print = time.time()
 
-        node_id = str(node) + "-" + pivot_date_str
+        node_id = str(node) + "-" + sim_date
         node_data = {
             "node-id": node_id,
             "node": graph.nodes[node].copy()

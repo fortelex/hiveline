@@ -1,17 +1,16 @@
-import warnings
+import os
+import sys
+import time
 
 import folium
 import h3
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.colors
 import matplotlib.colors as mpl_colors
-import geopandas as gpd
 import pandas as pd
-from selenium import webdriver
-import time
-import os
-import sys
 from dotenv import load_dotenv
+from geojson import LineString
+from selenium import webdriver
 
 load_dotenv()
 PROJECT_PATH = os.getenv("PROJECT_PATH")
@@ -36,19 +35,17 @@ def style_heatmap(feature):
     }
 
 
-def style_white(feature):
-    return {
-        'color': 'white',
-        'opacity': 0.6,
-        'weight': 3,
-    }
+# Convert H3 hexagons to geographic boundaries and create DataFrame
+def _hexagon_to_polygon(hexagon):
+    boundary = h3.h3_to_geo_boundary(hexagon, True)
+    return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
 
 
 class CityPlotter():
     def __init__(self, city, zoom=13):
         self.city = city
-        if len(city.data.columns) <= 3:
-            self.city.load_all()
+        # if len(city.data.columns) <= 3:
+        #     self.city.load_all()
         self.centroid = self.get_centroid()  # [48.857003, 2.3492646]
         self.map = self.get_map(zoom)
 
@@ -63,9 +60,11 @@ class CityPlotter():
         m = folium.Map(location=self.centroid, zoom_start=zoom, tiles=mapstyle, zoom_control=False)
         return m
 
-    def add_city_shape(self):
+    def add_city_shape(self, color="white", opacity=0.6, weight=3, dash_array='0, 0'):
         shape = self.city.shape.boundary.__geo_interface__
-        shape = folium.GeoJson(data=shape, style_function=style_white)
+        shape = folium.GeoJson(data=shape,
+                               style_function=lambda feature: dict(color=color, weight=weight, opacity=opacity,
+                                                                   dashArray=dash_array))
         shape.add_to(self.map)
 
     def add_hex_heatmap(self, column):
@@ -78,11 +77,6 @@ class CityPlotter():
             geo_j = folium.GeoJson(data=geo_j, style_function=style_heatmap)
             geo_j.add_to(self.map)
 
-    # Convert H3 hexagons to geographic boundaries and create DataFrame
-    def __hexagon_to_polygon(self, hexagon):
-        boundary = h3.h3_to_geo_boundary(hexagon, True)
-        return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
-
     def add_custom_hex_heatmap(self, data):
         """
         Add a custom heatmap to the map. For adding city input data, use add_hex_heatmap instead.
@@ -90,20 +84,22 @@ class CityPlotter():
         :return:
         """
         df = pd.DataFrame([
-            {"hexagon": hexagon, "count": count, "geometry": __hexagon_to_polygon(hexagon)}
+            {"hexagon": hexagon, "count": count, "geometry": _hexagon_to_polygon(hexagon)}
             for hexagon, count in data.items()
         ])
 
         maximum = df['count'].max()
+        minimum = df['count'].min()
 
         # Define a color scale
-        linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
-        opacity = 0.5
+        # linear = cm.LinearColormap(colors=['#00ccff', '#cc6600'], index=[0, 1], vmin=0, vmax=1)
+        linear = cm.get_cmap("viridis")
+        opacity = 1
 
         # Add Hexagons to the map
         for _, row in df.iterrows():
-            val = row['count'] / maximum
-            color = linear(val)
+            val = (row['count'] - minimum) / (maximum - minimum)
+            color = matplotlib.colors.rgb2hex(linear(val))
             folium.Polygon(
                 locations=row['geometry'],
                 fill=True,
@@ -114,9 +110,6 @@ class CityPlotter():
                 opacity=opacity,
                 tooltip=f"{row['count']} trace points"
             ).add_to(self.map)
-
-        # Add color scale legend
-        linear.add_to(self.map)
 
     def show_map(self):
         return display(self.map)
@@ -132,23 +125,37 @@ class CityPlotter():
         driver = webdriver.Chrome(options=options)
         return driver
 
-    def add_traces(self, traces, max_points_per_trace=None):
+    def add_trace(self, trace, color, weight=2, opacity=0.75, dash_array='0, 0'):
+        """
+        Add a trace to the map
+        :param trace: trace object. a trace object is a dict with keys: tdf, color where tdf is a
+        :param color: hex color string
+        :param weight: weight of the trace line
+        :param opacity: opacity of the trace line
+        :param dash_array: dash array of the trace line
+        :return:
+        """
+        line = LineString([(lon, lat) for lat, lon, _ in trace])
+
+        tgeojson = folium.GeoJson(line,
+                                  name='tgeojson',
+                                  style_function=lambda feature: dict(color=color, weight=weight, opacity=opacity,
+                                                                      dashArray=dash_array)
+                                  )
+        tgeojson.add_to(self.map)
+
+    def add_traces(self, traces, weight=2, opacity=0.75, dash_array='0, 0'):
         """
         Add traces to the map
         :param traces: list of trace objects. each trace object is a dict with keys: tdf, color where tdf is a
-        TrajectoryDataFrame and color is a hex color string
-        :param max_points_per_trace: max number of points to plot per trace
+        trajectory and color is a hex color string
+        :param weight: weight of the trace line
+        :param opacity: opacity of the trace line
+        :param dash_array: dash array of the trace line
         :return:
         """
-        # ignore warning about down-sampling
-        warnings.filterwarnings('ignore', 'If necessary, trajectories will be down-sampled', UserWarning)
         for trace in traces:
-            tdf = trace["tdf"]
-            color = trace["color"]
-            # need to plot each trace separately to be able to set the color
-            self.map = tdf.plot_trajectory(map_f=self.map, start_end_markers=False, max_users=1,
-                                           max_points=max_points_per_trace,
-                                           hex_color=color)
+            self.add_trace(trace["trace"], trace["color"], weight=weight, opacity=opacity, dash_array=dash_array)
 
     def export_to_png(self, folder='images/', filename='image', tall_city=False, webdriver=None):
         if webdriver is None:

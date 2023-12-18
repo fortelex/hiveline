@@ -5,4 +5,5 @@ from hiveline.od.place import Place
 from hiveline.vc.generation import create_simulation
 from hiveline.results.modal_shares import plot_monte_carlo_convergence, get_journeys_stats
 from hiveline.results.journeys import Journeys
+from hiveline.results.trace_plotter import plot_traces
 from hiveline.plotting.map import CityPlotter

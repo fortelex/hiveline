@@ -233,3 +233,5 @@ class CityPlotter():
         webdriver.save_screenshot(filepath + '.png')
         if os.path.exists(filepath_html):
             os.remove(filepath_html)
+
+        return filepath + ".png"

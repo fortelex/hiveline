@@ -65,7 +65,10 @@ class Journeys:
 
             opt = o.options
             if selection is not None:
-                opt = [o.get_option(selection[i])]
+                option = o.get_option(selection[i])
+                if option is None:
+                    continue
+                opt = [option]
 
             for option in opt:
                 yield option.get_trace()

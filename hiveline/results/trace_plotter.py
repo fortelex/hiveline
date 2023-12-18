@@ -4,9 +4,7 @@ from hiveline.results.journeys import Journeys
 from hiveline.results.modal_shares import decide, Params
 
 
-def _prepare_traces(sim_id, db=None, only_use_selected=False):
-    journeys = Journeys(sim_id, db=db)
-
+def _prepare_traces(journeys: Journeys, only_use_selected=True):
     selection: list[str] | None = None
 
     if only_use_selected:
@@ -17,8 +15,9 @@ def _prepare_traces(sim_id, db=None, only_use_selected=False):
     return [trace for trace in journeys.iterate_traces(selection)]
 
 
-def plot_animation(sim_id, place, only_use_selected=False, zoom_level=13, tall_city=False, fps=30, duration=30):
-    raw_traces = _prepare_traces(sim_id, only_use_selected=only_use_selected)
+def plot_trace_animation(journeys: Journeys, only_use_selected=True, zoom_level=13, tall_city=False, fps=30,
+                         duration=30):
+    raw_traces = _prepare_traces(journeys, only_use_selected=only_use_selected)
 
     print("Plotting traces...")
 
@@ -48,8 +47,8 @@ def plot_animation(sim_id, place, only_use_selected=False, zoom_level=13, tall_c
         num_to_plot += num_step
 
 
-def plot_all(sim_id, place, db=None, only_use_selected=False):
-    raw_traces = _prepare_traces(sim_id, db=db, only_use_selected=only_use_selected)
+def plot_traces(journeys: Journeys, place, only_use_selected=True, folder="images/", filename="image"):
+    raw_traces = _prepare_traces(journeys, only_use_selected=only_use_selected)
     traces = get_line_traces_by_mode(raw_traces)
 
     print("Plotting traces...")
@@ -59,13 +58,13 @@ def plot_all(sim_id, place, db=None, only_use_selected=False):
     plotter.add_city_shape(color="yellow", weight=10)
     plotter.add_traces(traces)
 
-    plotter.export_to_png(filename="test")
+    return plotter.export_to_png(folder=folder, filename=filename)
 
 
 if __name__ == "__main__":
-
-    place = Place("Eindhoven, Netherlands", '2020')
-    plot_all("614aab43-b799-46cd-a1aa-bdb9e739d525", place, only_use_selected=True)
-    # plot_animation("614aab43-b799-46cd-a1aa-bdb9e739d525", place, zoom_level=11,
+    sim_place = Place("Eindhoven, Netherlands", '2020')
+    jrn = Journeys("614aab43-b799-46cd-a1aa-bdb9e739d525")
+    plot_traces(jrn, sim_place)
+    # plot_trace_animation("614aab43-b799-46cd-a1aa-bdb9e739d525", place, zoom_level=11,
     #                only_use_selected=True,
     #                fps=30, duration=2, tall_city=True)

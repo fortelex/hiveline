@@ -3,8 +3,8 @@ import datetime
 import polyline
 import requests
 
-import hiveline.routing.fptf as fptf
 from hiveline.routing.clients.routing_client import RoutingClient
+from hiveline.models import fptf
 
 
 class OpenTripPlannerRoutingClient(RoutingClient):

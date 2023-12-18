@@ -6,9 +6,9 @@ import osmnx
 from matplotlib import pyplot as plt
 
 import hiveline.vc.vc_extract as vc_extract
+from hiveline.models import fptf
 from hiveline.od.place import Place
 from hiveline.results.journeys import Journeys, Option, Options, get_option_stats, JourneyStats
-from hiveline.routing import fptf
 from hiveline.routing.util import ensure_directory
 
 rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]

@@ -2,7 +2,7 @@ from datetime import datetime
 
 import h3
 
-from hiveline.routing import fptf
+from hiveline.models import fptf
 
 
 def get_time(timestamp):

@@ -1,7 +1,7 @@
 import datetime
 from abc import ABC, abstractmethod
 
-from hiveline.routing import fptf
+from hiveline.models import fptf
 
 
 class RoutingClient(ABC):

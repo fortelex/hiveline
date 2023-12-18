@@ -1,88 +1,71 @@
-from hiveline.mongo.db import get_database
 from hiveline.od.place import Place
-from hiveline.plotting import traces
-from hiveline.plotting.map import CityPlotter
-from hiveline.results import modal_shares, congestion
+from hiveline.plotting.map import CityPlotter, get_line_traces_by_mode, add_line_traces
+from hiveline.results.journeys import Journeys
+from hiveline.results.modal_shares import decide, Params
 
 
-def plot_animation(sim_id, place_name, only_use_selected=False, zoom_level=13, tall_city=False, fps=30, duration=30,
-                   max_points_per_trace=100):
-    db = get_database()
+def _prepare_traces(sim_id, db=None, only_use_selected=False):
+    journeys = Journeys(sim_id, db=db)
 
-    results = list(congestion.find_all_journeys(db, sim_id))
-
-    selection = [None] * len(results)
+    selection: list[str] | None = None
 
     if only_use_selected:
-        result_options = congestion.find_matching_route_options(db, sim_id, results)
-
-        modal_shares.get_stats_from_route_options(result_options, out_selection=selection)
+        selection = journeys.get_selection(lambda options: decide(options, Params()))
 
     print("Extracting traces...")
-    all_to_plot = traces.extract_traces(results, selection=selection)
 
-    print("Decimating traces...")
-    # tdf = compression.compress(tdf, spatial_radius_km=spatial_radius)
+    return [trace for trace in journeys.iterate_traces(selection)]
 
-    # heatmap_data = traces.get_trace_heatmap_data(to_plot)
-    # map_f = traces.add_heatmap_to_map(map_f, heatmap_data)
+
+def plot_animation(sim_id, place, only_use_selected=False, zoom_level=13, tall_city=False, fps=30, duration=30):
+    raw_traces = _prepare_traces(sim_id, only_use_selected=only_use_selected)
 
     print("Plotting traces...")
 
     total_frames = fps * duration
 
-    num_to_plot = 1
-    num_step = int(len(all_to_plot) / total_frames)
-
-    place = Place(place_name)
+    num_to_plot = 0
+    num_step = int(len(raw_traces) / total_frames)
 
     plotter = CityPlotter(place, zoom=zoom_level)
     webdriver = plotter.setup_webdriver()
 
+    traces = {}
+
     for i in range(total_frames):
         print(f"Frame {i} of {total_frames}")
 
-        to_plot = all_to_plot[:num_to_plot]
+        raw_to_add = raw_traces[num_to_plot:num_to_plot + num_step]
+        traces_to_add = get_line_traces_by_mode(raw_to_add)
+        traces = add_line_traces(traces, traces_to_add)
 
         plotter.get_map(zoom=zoom_level, dark=True)
+        plotter.add_traces(traces)
 
-        plotter.map = traces.add_traces_to_map(plotter.map, to_plot,
-                                               max_points_per_trace=max_points_per_trace)
-
-        plotter.export_to_png(folder="animation", filename=sim_id + "-frame-" + str(i) + ".png", tall_city=tall_city,
+        plotter.export_to_png(folder="animation", filename=sim_id + "-frame-" + str(i), tall_city=tall_city,
                               webdriver=webdriver)
 
         num_to_plot += num_step
 
 
-def plot_all(sim_id, only_use_selected=False):
-    db = get_database()
+def plot_all(sim_id, place, db=None, only_use_selected=False):
+    raw_traces = _prepare_traces(sim_id, db=db, only_use_selected=only_use_selected)
+    traces = get_line_traces_by_mode(raw_traces)
 
-    place = Place("Eindhoven, Netherlands")
-
-    results = list(congestion.find_all_journeys(db, sim_id))
-
-    selection = [None] * len(results)
-
-    if only_use_selected:
-        result_options = congestion.find_matching_route_options(db, sim_id, results)
-
-        modal_shares.get_stats_from_route_options(result_options, out_selection=selection)
-
-    print("Extracting traces...")
-    all_to_plot = traces.extract_traces(results, selection=selection)
     print("Plotting traces...")
 
     plotter = CityPlotter(place, zoom=11)
 
     plotter.add_city_shape(color="yellow", weight=10)
-    plotter.add_traces(all_to_plot)
+    plotter.add_traces(traces)
 
     plotter.export_to_png(filename="test")
 
 
 if __name__ == "__main__":
-    # plot_animation("ae945a7c-5fa7-4312-b9c1-807cb30b3008", "Dublin Region, Ireland", zoom_level=11,
+
+    place = Place("Eindhoven, Netherlands", '2020')
+    plot_all("614aab43-b799-46cd-a1aa-bdb9e739d525", place, only_use_selected=True)
+    # plot_animation("614aab43-b799-46cd-a1aa-bdb9e739d525", place, zoom_level=11,
     #                only_use_selected=True,
-    #                fps=30, duration=10, tall_city=True)
-    plot_all("8b87b845-5d82-410c-a34d-cf5e4ceba361", only_use_selected=True)
+    #                fps=30, duration=2, tall_city=True)

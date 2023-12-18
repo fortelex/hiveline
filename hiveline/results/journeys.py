@@ -58,6 +58,18 @@ class Journeys:
             if sel is not None:
                 yield self.options[i].get_option(sel)
 
+    def iterate_traces(self, selection=None) -> Generator[list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]], None, None]:
+        for (i, o) in enumerate(self.options):
+            if selection is not None and i >= len(selection):
+                break
+
+            opt = o.options
+            if selection is not None:
+                opt = [o.get_option(selection[i])]
+
+            for option in opt:
+                yield option.get_trace()
+
     def get_selection(self, decision: Callable[[Options], Option | None], max_count=None) -> list[str | None]:
         """
         Get the selection of options based on a decision function

@@ -7,7 +7,7 @@ from hiveline.plotting.map import CityPlotter
 def main():
     sim_id = "0e952d41-9b3d-4bd3-8514-fabefe1549e1"
     cache = "./cache"
-    sub_type = "origin"
+    sub_type = "contribution-origin"
 
     place = Place("Eindhoven, Netherlands", '2020')
 

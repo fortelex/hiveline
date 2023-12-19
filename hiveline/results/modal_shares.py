@@ -6,9 +6,9 @@ import osmnx
 from matplotlib import pyplot as plt
 
 import hiveline.vc.vc_extract as vc_extract
+from hiveline.models import fptf
 from hiveline.od.place import Place
 from hiveline.results.journeys import Journeys, Option, Options, get_option_stats, JourneyStats
-from hiveline.routing import fptf
 from hiveline.routing.util import ensure_directory
 
 rail_modes = [fptf.Mode.TRAIN, fptf.Mode.BUS, fptf.Mode.GONDOLA, fptf.Mode.WATERCRAFT]
@@ -92,12 +92,13 @@ def merge_journey_stats(stats: list[JourneyStats]) -> JourneyStats:
     return result
 
 
-def get_journeys_stats(journeys: Journeys, params: Params = None, max_count=None) -> JourneyStats:
+def get_journeys_stats(journeys: Journeys, params: Params = None, max_count=None, shape=None) -> JourneyStats:
     """
     Get the modal share for a set of route options
     :param journeys: the journeys
     :param params: (optional) the simulation parameters
     :param max_count: (optional) the maximum number of route options to consider
+    :param shape: (optional) a shape to filter for
     :return: a dictionary with the modal share
     """
     if params is None:
@@ -105,7 +106,7 @@ def get_journeys_stats(journeys: Journeys, params: Params = None, max_count=None
 
     selection = journeys.get_selection(lambda options: decide(options, params), max_count=max_count)
 
-    option_stats = [get_option_stats(option) for option in journeys.iterate_selection(selection)]
+    option_stats = [get_option_stats(option, shape=shape) for option in journeys.iterate_selection(selection)]
 
     return merge_journey_stats(option_stats)
 
@@ -130,11 +131,12 @@ def push_stats_to_db(db, sim_id, stats: JourneyStats, meta=None):
     return doc
 
 
-def plot_monte_carlo_convergence(journeys: Journeys, city_name: str, use_city_bounds=False, params=None):
+def plot_monte_carlo_convergence(journeys: Journeys, city_name: str, shape=None, params=None):
     """
     Run decision algorithm without congestion simulation on multiple subsets of the data and plots convergence
     :param journeys: the journeys
     :param city_name: the city name to add to the plot
+    :param shape: a shape to filter for
     :param params: the parameters
     :return:
     """
@@ -151,12 +153,6 @@ def plot_monte_carlo_convergence(journeys: Journeys, city_name: str, use_city_bo
 
     num_to_plot = 1
     num_steps = 100
-
-    shape = None
-
-    if use_city_bounds:
-        place = Place(city_name)
-        shape = place.shape.iloc[0].geometry
 
     t = datetime.datetime.now()
 

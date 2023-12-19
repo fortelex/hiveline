@@ -2,8 +2,8 @@ import datetime
 
 import numpy as np
 
+from hiveline.models import fptf
 from hiveline.mongo.db import get_database
-from hiveline.routing import fptf
 from hiveline.routing.clients.routing_client import RoutingClient
 
 

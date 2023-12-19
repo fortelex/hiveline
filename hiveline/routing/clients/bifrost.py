@@ -2,8 +2,8 @@ import datetime
 import json
 
 import requests
-from .routing_client import RoutingClient
-from .. import fptf
+from hiveline.routing.clients.routing_client import RoutingClient
+from hiveline.models import fptf
 
 
 class BifrostRoutingClient(RoutingClient):

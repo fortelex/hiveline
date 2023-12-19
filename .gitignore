@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # images (onedrive)
-visualization/images/
+visualization/
 # C extensions
 *.so
 

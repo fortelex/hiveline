@@ -2,6 +2,8 @@ import datetime
 import json
 from enum import Enum
 
+import polyline
+
 supported_formats = ['%Y-%m-%dT%H:%M:%S.%f%z', '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S.%f',
                      '%Y-%m-%dT%H:%M:%S']  # first will be used for formatting
 
@@ -697,7 +699,7 @@ class Leg:
                  arrival_delay: int = None, arrival_platform: str = None, line: Line = None, direction: str = None,
                  stopovers: list[Stopover] = None, schedule: Schedule = None, public: bool = True,
                  operator: Operator = None,
-                 price: Price = None):
+                 price: Price = None, polyline: str = None):
         self.type = 'leg'
         self.origin = origin
         self.destination = destination
@@ -716,6 +718,7 @@ class Leg:
         self.public = public
         self.operator = operator
         self.price = price
+        self.polyline = polyline
 
     def to_dict(self):
         return _remove_empty_keys({
@@ -736,7 +739,8 @@ class Leg:
             'schedule': self.schedule.to_dict() if self.schedule else None,
             'public': self.public,
             'operator': self.operator.to_dict() if self.operator else None,
-            'price': self.price.to_dict() if self.price else None
+            'price': self.price.to_dict() if self.price else None,
+            'polyline': self.polyline if self.polyline else None
         })
 
     def to_json(self):
@@ -794,7 +798,8 @@ def leg_from_json(data: dict | str | None):
         schedule=schedule_from_json(data['schedule']) if 'schedule' in data else None,
         public=data['public'] if 'public' in data else None,
         operator=operator_from_json(data['operator']) if 'operator' in data else None,
-        price=price_from_json(data['price']) if 'price' in data else None
+        price=price_from_json(data['price']) if 'price' in data else None,
+        polyline=data['polyline'] if 'polyline' in data else None
     )
 
 
@@ -847,6 +852,14 @@ class Journey:
         line = []
 
         for leg in self.legs:
+            if leg.polyline:
+                leg_trace = polyline.decode(leg.polyline, geojson=True)
+                dep = leg.get_departure()
+                dt = (leg.get_arrival() - dep) / (len(leg_trace) - 1)
+                for i, point in enumerate(leg_trace):
+                    line.append((point, dep + i * dt, leg.mode, i == 0))
+                continue
+
             if not leg.stopovers:
                 origin_loc = get_location(leg.origin)
                 dest_loc = get_location(leg.destination)

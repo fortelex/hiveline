@@ -9,49 +9,24 @@ if __name__ == "__main__":
 
 import argparse
 import datetime
-import threading
 import time
 import uuid
 
 import pymongo.errors
 
+from hiveline.jobs.jobs import JobHandler, JobStatus
+from hiveline.jobs.mongo import MongoJobsDataSource
+from hiveline.models import fptf
+from hiveline.models.options import Option
 from hiveline.mongo.db import get_database
-from hiveline.routing import fptf, resource_builder
+from hiveline.routing import resource_builder
 from hiveline.routing.clients.delayed import DelayedRoutingClient
 from hiveline.routing.clients.routing_client import RoutingClient
 from hiveline.routing.servers.routing_server import RoutingServer
 from hiveline.vc import vc_extract
 
 
-def __reset_jobs(db, sim_id):
-    """
-    Reset all jobs for the given simulation to pending.
-    :param db: the database
-    :return:
-    """
-
-    print("Resetting jobs for simulation {}".format(sim_id))
-
-    coll = db["route-calculation-jobs"]
-    coll.update_many({"sim-id": sim_id},
-                     {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
-
-
-def __reset_failed_jobs(db, sim_id):
-    """
-    Reset all jobs for the given simulation to pending.
-    :param db: the database
-    :return:
-    """
-
-    print("Resetting failed jobs for simulation {}".format(sim_id))
-
-    coll = db["route-calculation-jobs"]
-    coll.update_many({"sim-id": sim_id, "status": "error"},
-                     {"$set": {"status": "pending"}, "$unset": {"error": "", "started": "", "finished": ""}})
-
-
-def __create_route_calculation_jobs(db, sim_id):
+def __create_route_calculation_jobs(db, sim_id, job_handler):
     """
     Create route calculation jobs for all virtual commuters of a given simulation that do not have a job yet.
     :param db: the database
@@ -65,22 +40,8 @@ def __create_route_calculation_jobs(db, sim_id):
             }
         },
         {
-            "$lookup": {
-                "from": "route-calculation-jobs",
-                "localField": "vc-id",
-                "foreignField": "vc-id",
-                "as": "matched_docs"
-            }
-        },
-        {
-            "$match": {
-                "matched_docs": {
-                    "$not": {
-                        "$elemMatch": {
-                            "sim-id": sim_id
-                        }
-                    }
-                }
+            "$project": {
+                "vc-id": "$vc-id",
             }
         }
     ]
@@ -88,82 +49,12 @@ def __create_route_calculation_jobs(db, sim_id):
     coll = db["virtual-commuters"]
 
     result = coll.aggregate(pipeline)
-    jobs_coll = db["route-calculation-jobs"]
+    job_ids = [vc["vc-id"] for vc in result]
 
-    print("Creating jobs for simulation {}".format(sim_id))
-    for doc in result:
-        vc_id = doc["vc-id"]
-        sim_id = doc["sim-id"]
-        created = datetime.datetime.now()
-
-        job = {
-            "vc-id": vc_id,
-            "sim-id": sim_id,
-            "created": created,
-            "status": "pending"
-        }
-
-        try:
-            jobs_coll.insert_one(job)
-        except pymongo.errors.DuplicateKeyError:
-            continue  # job was created by other process while iterating
+    job_handler.create_jobs(job_ids)
 
 
-def __reset_timed_out_jobs(db):
-    """
-    Reset jobs that have been running for more than 5 minutes.
-    :param db: the database
-    :return:
-    """
-    jobs_coll = db["route-calculation-jobs"]
-
-    print("Resetting timed out jobs")
-
-    jobs_coll.update_many({
-        "status": "running",
-        "started": {
-            "$lt": datetime.datetime.now() - datetime.timedelta(minutes=5)
-        }
-    }, {
-        "$set": {
-            "status": "pending"
-        }
-    })
-
-
-class RouteResult:
-    def __init__(self, route_option_id: str, origin: list, destination: list, departure: datetime.datetime,
-                 modes: list[fptf.Mode], journey: fptf.Journey):
-        self.id = route_option_id
-        self.origin = origin
-        self.destination = destination
-        self.departure = departure
-        self.modes = modes
-        self.journey = journey
-
-    def to_dict(self):
-        return {
-            "route-option-id": self.id,
-            "origin": self.origin,
-            "destination": self.destination,
-            "departure": self.departure,
-            "modes": [mode.to_string() for mode in self.modes],
-            "journey": self.journey.to_dict()
-        }
-
-    @staticmethod
-    def from_dict(d: dict):
-        return RouteResult(
-            d["route-option-id"],
-            d["origin"],
-            d["destination"],
-            d["departure"],
-            [fptf.Mode.from_string(mode) for mode in d["modes"]],
-            fptf.journey_from_json(d["journey"])
-        )
-
-
-def __get_route_results(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> list[RouteResult] | None:
+def __get_route_results(client: RoutingClient, vc: dict, sim: dict, modes: list[fptf.Mode]) -> list[Option] | None:
     """
     Get a route for a virtual commuter.
     :param client: The routing client
@@ -181,10 +72,13 @@ def __get_route_results(client: RoutingClient, vc: dict, sim: dict, modes: list[
     if journeys is None:
         return None
 
-    return [RouteResult(str(uuid.uuid4()), origin, destination, departure, modes, journey) for journey in journeys]
+    origin_fptf = fptf.Location(longitude=origin[0], latitude=origin[1])
+    destination_fptf = fptf.Location(longitude=destination[0], latitude=destination[1])
+
+    return [Option(str(uuid.uuid4()), origin_fptf, destination_fptf, departure, modes, journey) for journey in journeys]
 
 
-def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list[RouteResult]:
+def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list[Option]:
     """
     Route a virtual commuter. It will calculate available mode combinations and then calculate routes for each of them.
     :param client: The routing client
@@ -210,12 +104,14 @@ def __route_virtual_commuter(client: RoutingClient, vc: dict, sim: dict) -> list
     return options
 
 
-def __no_active_jobs(db, sim_id):
-    jobs_coll = db["route-calculation-jobs"]
-    return jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"}) == 0
+def __process_virtual_commuter(client, route_results_coll, vc_coll, vc_id, sim, meta):
+    vc = vc_coll.find_one({"vc-id": vc_id, "sim-id": sim["sim-id"]})
 
+    should_route = vc_extract.should_route(vc)
 
-def __process_virtual_commuter(client, route_results_coll, vc, sim, meta):
+    if not should_route:
+        return
+
     options = __route_virtual_commuter(client, vc, sim)
 
     if options is None or len(options) == 0:
@@ -240,86 +136,6 @@ def __process_virtual_commuter(client, route_results_coll, vc, sim, meta):
         route_results_coll.update_one({"vc-id": vc["vc-id"], "sim-id": vc["sim-id"]}, {"$set": route_results})
 
 
-def __iterate_jobs(client: RoutingClient, db, sim, meta, debug=False, progress_fac=1):
-    jobs_coll = db["route-calculation-jobs"]
-    vc_coll = db["virtual-commuters"]
-    route_results_coll = db["route-results"]
-
-    sim_id = sim["sim-id"]
-
-    # get total number of jobs
-    total_jobs = jobs_coll.count_documents({"sim-id": sim_id, "status": "pending"})
-
-    # by default, we will not stop the process if there is one error, but if there are multiple consecutive errors,
-    # we will stop the process
-    consecutive_error_number = 0
-
-    print("Running routing algorithm")
-
-    job_key = 0
-    last_print = 0
-
-    while True:
-        job = jobs_coll.find_one_and_update({
-            "status": "pending",
-            "sim-id": sim_id
-        }, {
-            "$set": {
-                "status": "running",
-                "started": datetime.datetime.now()
-            }
-        })
-
-        if job is None:
-            break
-
-        job_key += 1
-        percentage = job_key / total_jobs * 100
-        current_time = time.time()
-        if debug and current_time - last_print > 1:
-            print("Progress: ~{:.2f}% {:}".format(percentage * progress_fac, job["vc-id"]))
-            last_print = current_time
-
-        try:
-            vc = vc_coll.find_one({"vc-id": job["vc-id"], "sim-id": sim_id})
-
-            should_route = vc_extract.should_route(vc)
-
-            if should_route:
-                __process_virtual_commuter(client, route_results_coll, vc, sim, meta)
-
-            # set status to finished
-            jobs_coll.update_one({"_id": job["_id"]}, {"$set": {"status": "done", "finished": datetime.datetime.now()}})
-        except Exception as e:
-            short_description = "Exception occurred while running routing algorithm: " + e.__class__.__name__ + ": " \
-                                + str(e)
-
-            print(short_description)
-
-            # set status to failed
-            jobs_coll.update_one({"_id": job["_id"]},
-                                 {"$set": {"status": "error", "error": short_description,
-                                           "finished": datetime.datetime.now()}})
-
-            consecutive_error_number += 1
-
-            if consecutive_error_number >= 5:
-                print("Too many consecutive errors, stopping")
-                raise e
-
-
-def __spawn_job_pull_threads(client: RoutingClient, db, sim, meta, num_threads=4):
-    threads = []
-
-    for i in range(num_threads):
-        t = threading.Thread(target=__iterate_jobs, args=(client, db, sim, meta, i == 0, num_threads))
-        t.start()
-        threads.append(t)
-
-    for t in threads:
-        t.join()
-
-
 def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_id, data_dir="./cache", use_delays=True,
                               force_graph_rebuild=False, num_threads=4, reset_jobs=False, reset_failed=False, db=None):
     """
@@ -341,16 +157,18 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
     if db is None:
         db = get_database()
 
+    job_handler = JobHandler("routing", sim_id, MongoJobsDataSource(db=db))
+
     if reset_jobs:
-        __reset_jobs(db, sim_id)
+        job_handler.reset_jobs()
 
     if reset_failed and not reset_jobs:
-        __reset_failed_jobs(db, sim_id)
+        job_handler.reset_failed_jobs()
 
-    __create_route_calculation_jobs(db, sim_id)
-    __reset_timed_out_jobs(db)
+    __create_route_calculation_jobs(db, sim_id, job_handler)
+    job_handler.reset_timed_out_jobs()
 
-    if __no_active_jobs(db, sim_id):
+    if job_handler.count_jobs(status=JobStatus.PENDING) == 0:
         print("No active jobs, stopping")
         return
 
@@ -374,6 +192,9 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
         "uses-delay-simulation": use_delays
     }
 
+    route_results_coll = db["route-results"]
+    vc_coll = db["virtual-commuters"]
+
     server.start(config, server_files)
 
     try:
@@ -381,7 +202,9 @@ def __route_virtual_commuters(server: RoutingServer, client: RoutingClient, sim_
 
         t = datetime.datetime.now()
 
-        __spawn_job_pull_threads(client, db, sim, meta, num_threads)
+        job_handler.iterate_jobs(
+            lambda job_id: __process_virtual_commuter(client, route_results_coll, vc_coll, job_id, sim, meta),
+            threads=num_threads, debug_progress=True)
 
         print("Finished routing algorithm in " + str(datetime.datetime.now() - t))
 

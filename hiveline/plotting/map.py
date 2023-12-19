@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import time
@@ -11,6 +12,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from geojson import LineString
 from selenium import webdriver
+
+from hiveline.models import fptf
 
 load_dotenv()
 PROJECT_PATH = os.getenv("PROJECT_PATH")
@@ -39,6 +42,50 @@ def style_heatmap(feature):
 def _hexagon_to_polygon(hexagon):
     boundary = h3.h3_to_geo_boundary(hexagon, True)
     return [[coord[1], coord[0]] for coord in boundary]  # Switch to (lat, long)
+
+
+def _extract_mode_traces(trace: list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]]) -> list[
+    tuple[LineString, fptf.Mode]]:
+    last_mode = trace[0][2]
+    line = []
+    traces = []
+
+    for point, _, mode, _ in trace:
+        if mode != last_mode:
+            traces.append((LineString(line), last_mode))
+            line = []
+        line.append(point)
+        last_mode = mode
+
+    if line:
+        traces.append((LineString(line), last_mode))
+    return traces
+
+
+def get_line_traces_by_mode(traces: list[list[tuple[tuple[float, float], datetime.datetime, fptf.Mode, bool]]]) -> dict[
+    fptf.Mode, list[LineString]]:
+    mode_trace_lists = [_extract_mode_traces(trace) for trace in traces]
+    mode_traces = [item for sublist in mode_trace_lists for item in sublist]
+
+    # group traces by mode
+    traces_by_mode = {}
+
+    for line, mode in mode_traces:
+        if mode not in traces_by_mode:
+            traces_by_mode[mode] = []
+        traces_by_mode[mode].append(line)
+
+    return traces_by_mode
+
+
+def add_line_traces(a: dict[fptf.Mode, list[LineString]], b: dict[fptf.Mode, list[LineString]]) -> dict[
+    fptf.Mode, list[LineString]]:
+    for mode, traces in b.items():
+        if mode not in a:
+            a[mode] = []
+        a[mode].extend(traces)
+
+    return a
 
 
 class CityPlotter():
@@ -125,26 +172,14 @@ class CityPlotter():
         driver = webdriver.Chrome(options=options)
         return driver
 
-    def add_trace(self, trace, color, weight=2, opacity=0.75, dash_array='0, 0'):
-        """
-        Add a trace to the map
-        :param trace: trace object. a trace object is a dict with keys: tdf, color where tdf is a
-        :param color: hex color string
-        :param weight: weight of the trace line
-        :param opacity: opacity of the trace line
-        :param dash_array: dash array of the trace line
-        :return:
-        """
-        line = LineString([(lon, lat) for lat, lon, _ in trace])
+    def style_function(self, color, weight=2, opacity=0.75, dash_array='0, 0'):
+        return dict(color=color, weight=weight, opacity=opacity, dashArray=dash_array)
 
-        tgeojson = folium.GeoJson(line,
-                                  name='tgeojson',
-                                  style_function=lambda feature: dict(color=color, weight=weight, opacity=opacity,
-                                                                      dashArray=dash_array)
-                                  )
-        tgeojson.add_to(self.map)
+    def get_style_function(self, color, weight=2, opacity=0.75, dash_array='0, 0'):
+        return lambda feature: self.style_function(color, weight, opacity, dash_array)
 
-    def add_traces(self, traces, weight=2, opacity=0.75, dash_array='0, 0'):
+    def add_traces(self, traces: dict[fptf.Mode, list[LineString]], weight=2,
+                   opacity=0.75, dash_array='0, 0'):
         """
         Add traces to the map
         :param traces: list of trace objects. each trace object is a dict with keys: tdf, color where tdf is a
@@ -154,8 +189,27 @@ class CityPlotter():
         :param dash_array: dash array of the trace line
         :return:
         """
-        for trace in traces:
-            self.add_trace(trace["trace"], trace["color"], weight=weight, opacity=opacity, dash_array=dash_array)
+        color_map = {
+            fptf.Mode.WALKING: "#D280CE",
+            fptf.Mode.CAR: "#FE5F55",
+            fptf.Mode.BUS: "#F0B67F",
+            fptf.Mode.TRAIN: "#F7F4D3",
+            fptf.Mode.GONDOLA: "#F7F4D3",
+            fptf.Mode.WATERCRAFT: "#F7F4D3"
+        }
+
+        draw_order = [fptf.Mode.WALKING, fptf.Mode.CAR, fptf.Mode.BUS, fptf.Mode.TRAIN, fptf.Mode.GONDOLA,
+                      fptf.Mode.WATERCRAFT]
+
+        for mode in draw_order:
+            color = color_map[mode]
+
+            for line in traces.get(mode, []):
+                tgeojson = folium.GeoJson(line,
+                                          name='tgeojson',
+                                          style_function=self.get_style_function(color, weight, opacity, dash_array)
+                                          )
+                tgeojson.add_to(self.map)
 
     def export_to_png(self, folder='images/', filename='image', tall_city=False, webdriver=None):
         if webdriver is None:
@@ -179,3 +233,5 @@ class CityPlotter():
         webdriver.save_screenshot(filepath + '.png')
         if os.path.exists(filepath_html):
             os.remove(filepath_html)
+
+        return filepath + ".png"

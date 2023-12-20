@@ -1,9 +1,13 @@
 import random
 import numpy as np
-from shapely.geometry import Point
-from .virtualcommuter import VirtualCommuter
+import pandas as pd
+import geopandas as gpd
+import osmnx as ox
+import h3.api.numpy_int as h3
+from shapely.geometry import Point, LineString
 from shapely.ops import transform
 from pyproj import Transformer
+from .virtualcommuter import VirtualCommuter
 
 from hiveline.od.stats import Stats
 from hiveline.od.variables import min_distance_to_take_car
@@ -63,6 +67,8 @@ def rand_point_in_polygon(polygon):
     Randomly selects a point (lat, lon) in a polygon
     Args:
         polygon (shapely polygon): the polygon in which the random point is contained
+    Returns:
+        (shapely.Point)
     '''
     minx, miny, maxx, maxy = polygon.bounds
     prevent_infinite_loop = 0
@@ -73,23 +79,113 @@ def rand_point_in_polygon(polygon):
             return loc
     return False
 
+def rand_point_in_linestring(line):
+    '''
+    Sample a random point in a linestring
+    Args:
+        line (shapely.LineString): The line to sample from
+    Returns:
+        (shapely.Point): A random point
+    '''
+    if len(line.coords)==1: # single point
+        return line
+    # project the line to processable coordinates
+    line = project(line)
+    # get a random point in that line
+    point = line.interpolate(rand(), normalized=True)
+    # project back to epsg 4326
+    point = project(point, in_crs="epsg:6933", out_crs="epsg:4326")
+    return point
+
+def project(obj, in_crs="epsg:4326", out_crs="epsg:6933"):
+    '''
+    Project a shapely object (point, line, polygon, etc) to another coordinate reference system (crs)
+    Useful for computing distances, areas
+    Args: 
+        obj (shapely object): the object to project
+        in_crs (str): initial crs
+        out_crs (str): final crs
+    Returns:
+         (shapely object): the same object projected to the new crs
+    '''
+    crs_transformer = Transformer.from_crs(in_crs, out_crs, always_xy=True).transform
+    transformed_obj = transform(crs_transformer, obj)
+    return transformed_obj
+
 def distance(a,b):
     '''
     Project and compute distance between two points
     Args:
         a, b (shapely.geometry.Point): the points to compute distance
+    Returns:
+        (float): the distance in meters
     '''
     # distance is 0 if one of the point is not defined
     if not (a and b):
         return 0
-        
-    crs_transformer = Transformer.from_crs("epsg:4326", "epsg:6933", always_xy=True)
-    proj_a = transform(crs_transformer.transform, a)
-    proj_b = transform(crs_transformer.transform, b)
+    proj_a = project(a)
+    proj_b = project(b)
     d = proj_a.distance(proj_b)
     return round(d, 2)
 
+def cut_linestring(line, indexes):
+    '''
+    Cut a linestring into a smaller one
+    Args:
+        line (shapely.LineString): the whole line to cut
+        indexes (list of int): the list of consecutive indexes to keep
+    Returns:
+        The shortened linestring, or a point in case a single index is provided
+    '''
+    if len(indexes)==1:
+        return Point(line.coords[indexes[0]])
+    
+    return LineString(line.coords[indexes[0]:indexes[-1]+1])
 
+def split_list(l):
+    '''
+    Split a list of ascending integers to sub lists of consecutives ascending integers
+    (they might exist more optimal ways to do it)
+    Args:
+        l (list of integers): the list to split
+    Returns:
+        (list of lists of integers)
+    '''
+    new_l = [[]]
+    k=0
+    ref = l[0]
+    for i, e in enumerate(l):
+        if e - i != ref:
+            new_l.append([])
+            k+=1
+            ref = e - i
+        new_l[k] +=[e]
+    return new_l
+    
+def linestring_length(line):
+    '''
+    Compute the length of a shapely linestring
+    Args:
+        line (shapely.LineString): a line
+    Returns:
+        (float): the line length, in meters
+    '''
+    # a point is considered of length 1 m (to have later a probability to be selected)
+    if len(line.coords)==1:
+        return 1
+    line = project(line)
+    length = round(line.length, 2)
+    return length
+
+def linestring_length_gdf(row):
+    '''
+    Same as linestring_length() but to apply to a GeoDataFrame
+    Args:
+        row (GeoDataFrame row)
+    Returns:
+        (float): the line length, in meters
+    '''
+    return linestring_length(row['geometry'])
 
 class VirtualCommuterGenerator():
     def __init__(self, city):
@@ -152,11 +248,92 @@ class VirtualCommuterGenerator():
         tile_geometry = tile_geometry.item()
         loc = rand_point_in_polygon(tile_geometry)
         return loc
+    
+    def load_roads(self):
+        '''
+        Get the list of roads or road segments and their associated h3 tile id
+        such that each road is within a single tile
+        Returns:
+            (geopandas.GeoDataFrame)
+        '''
+        print(f'Loading roads from {self.city.name}...')
+        # get the graph of roads except main roads (where no housing along) 
+        custom_filter = '["highway"!~"motorway|trunk|primary|secondary|tertiary|escape|raceway|proposed|construction|via_ferrata|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"]'
+        graph = ox.graph_from_place(self.city.name, network_type='all_private', custom_filter=custom_filter)
 
-    def generate_origin(self):
+        # extract only the roads and the needed data
+        roads = []
+        for u, v, data in graph.edges(data=True):
+            keys = data.keys()
+            # filter roads where geometry is available
+            if ('highway' in keys) and ('geometry' in keys):
+                line = data['geometry']
+                tiles = {}
+                # get the tile id containing each point of the line
+                for i, (lon, lat) in enumerate(data['geometry'].coords):
+                    point_tile = h3.geo_to_h3(lat, lon, 8)
+                    history=tiles.get(point_tile, [])
+                    tiles.update({point_tile: history+[i]})
+                # store all roads and their corresponding tiles per point
+                roads += [{'geometry': line, 'tiles':tiles }]
+
+        # split the roads to have each line (or road) belonging to a single hex tile
+        new_roads = []
+        for i, r in enumerate(roads):
+            tiles = r['tiles'].keys()
+            # no change if there is a single tile id for a given road
+            if len(tiles)==1:
+                new_roads.append({
+                    'geometry': r['geometry'],
+                    'h3': list(tiles)[0],
+                    })
+            # otherwise, cut the road into segments per tile
+            else:
+                for tile in tiles:
+                    for indexes in split_list(r['tiles'][tile]):
+                        sub_line = cut_linestring(r['geometry'], indexes)
+                        new_roads.append({
+                            'geometry': sub_line,
+                            'h3': tile,
+                        })
+
+        # then, put the data (road segments and tile id) in a GeoDataFrame
+        roads_gdf = gpd.GeoDataFrame.from_records(new_roads)
+
+        # finally, compute road length and associated probability 
+        roads_gdf['length'] = roads_gdf.apply(linestring_length_gdf, axis=1)
+        # proba is the road length divided by the total length of roads for the same tile
+        total_tile_length = roads_gdf.groupby('h3')['length'].sum().reset_index()
+        for i, r in roads_gdf.iterrows():
+            total = total_tile_length.loc[total_tile_length['h3']==r['h3'], 'length'].item()
+            roads_gdf.loc[i, 'proba'] = r['length']/total
+        
+        print('Done')
+        self.roads_gdf = roads_gdf
+        return roads_gdf
+
+    def sample_point_from_roads(self, tile):
+        '''
+        Get a random point from a random road in a given tile
+        '''
+        # filter roads belonging to the tile
+        roads_gdf_in_tile = self.roads_gdf[self.roads_gdf['h3']==tile]
+        roads = roads_gdf_in_tile['geometry'].tolist()
+        probas = roads_gdf_in_tile['proba'].tolist()
+        # get a random road according to the probas
+        rand_road = rand_choice(roads, probas)
+        # interpolate a random point in that road
+        rand_point = rand_point_in_linestring(rand_road)
+        return rand_point
+
+    def generate_origin(self, realistic=False):
         '''
         Generate random origin point
         Random tile according to population distribution, then random point in tile.
+        Args:
+            realistic (bool): if True, the generated point is along a road
+                more realistic but requires to load first roads_gdf, that adds processing time
+                advised to set to True only for visualizations
         Returns:
             tile (int): the tile id
             loc (shapely point): a geo point
@@ -164,9 +341,14 @@ class VirtualCommuterGenerator():
         population = self.city.data[['h3', 'population']].copy()
         # convert to percentages
         population['population'] = population['population']/population['population'].sum()
+        # get random tile
         tile = rand_choice(population['h3'], population['population'])
         self.region = self.city.data.loc[self.city.data['h3']==tile, 'nuts3'].item()
-        loc = self.rand_point_in_tile(tile) 
+        # get random point
+        if realistic:
+            loc = self.sample_point_from_roads(tile)
+        else:
+            loc = self.rand_point_in_tile(tile) 
         return tile, loc
             
     def generate_variable(self, name):
@@ -202,12 +384,15 @@ class VirtualCommuterGenerator():
             employment = rand()*100 <= emp_rate
         return employment
     
-    def generate_destination(self, age, employment_type):
+    def generate_destination(self, age, employment_type, realistic=False):
         '''
         Get a destination point according to the employment and the zoning data
         Args:
             age (str): the age category
             employment_type (str): the employment type category
+            realistic (bool): if True, the generated point is along a road
+                more realistic but requires to load first roads_gdf, that adds processing time
+                advised to set to True only for visualizations
         Returns:
             tile (int): the tile id
             loc (shapely point): a geo point
@@ -218,10 +403,15 @@ class VirtualCommuterGenerator():
             interest = 'work_'+employment_type
         else:
             return None, None
+        # get random tile with probabilities based on vc interest
         interest_df =  self.city.data[['h3', interest]].copy()
         interest_df[interest] = interest_df[interest]/interest_df[interest].sum()
         tile = rand_choice(interest_df['h3'], interest_df[interest])
-        loc = self.rand_point_in_tile(tile)
+        # get random point
+        if realistic:
+            loc = self.sample_point_from_roads(tile)
+        else:
+            loc = self.rand_point_in_tile(tile)
         return tile, loc
     
     def vehicle_proba_with_parking(self, vehicle_type, vehicle_proba, origin_tile):
@@ -309,23 +499,28 @@ class VirtualCommuterGenerator():
         return vehicles
 
     
-    def generate_commuter(self, sim_id, use_parking=True):
+    def generate_commuter(self, sim_id, use_parking=True, realistic=False):
         '''
         Generate a virtual commuter according to the city demographic and zoning information
         Args:
             sim_id (str): the simulation id containing the vc
             parking (bool): whether or not to take work parking probability into consideration for car usage, and home parking for vehicle ownership
+            realistic (bool): if True, the generated point is along a road
+                more realistic but more processing time, should not change modal share
+                advised to set to True only for visualizations
         Returns:
             (VirtualCommuter): the random vc
         '''
-        origin_tile, origin = self.generate_origin()
+        if realistic:
+            self.load_roads()
+        origin_tile, origin = self.generate_origin(realistic)
         
         age = self.generate_variable('age')
         employed = self.generate_employment(age)
         employment_type = None
         if employed:
             employment_type = self.generate_variable('employment_type')
-        destination_tile, destination = self.generate_destination(age, employment_type)
+        destination_tile, destination = self.generate_destination(age, employment_type, realistic)
         od_distance = distance(origin, destination)
         vehicles = {vehicle_type: self.generate_vehicle(age, vehicle_type, origin_tile, use_parking) for vehicle_type in ['car', 'moto', 'utilities'] }
         vehicles = self.generate_vehicle_usage(vehicles, od_distance, destination_tile, use_parking)

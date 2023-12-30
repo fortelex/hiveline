@@ -15,6 +15,14 @@ type TraceElement struct {
 	IsLegStart bool
 }
 
+func (t *TraceElement) Dimensions() int {
+	return 2
+}
+
+func (t *TraceElement) Dimension(i int) float64 {
+	return t.Point[i]
+}
+
 type Trace struct {
 	VcId          string
 	RouteOptionId string
@@ -67,7 +75,7 @@ func filterTrace(trace Trace, boundary Bounds) Trace {
 	}
 }
 
-func filterTraces(traces []Trace, boundary Bounds) []Trace {
+func filterTracesByBounds(traces []Trace, boundary Bounds) []Trace {
 	filtered := make([]Trace, len(traces))
 
 	theadCount := 12
@@ -88,6 +96,71 @@ func filterTraces(traces []Trace, boundary Bounds) []Trace {
 	}
 
 	return filtered
+}
+
+func downSampleTraces(traces []Trace, targetCount int) []Trace {
+	downSampled := make([]Trace, len(traces))
+
+	theadCount := 12
+
+	done := make(chan bool, theadCount)
+
+	for i := 0; i < theadCount; i++ {
+		go func(i int) {
+			for j := i; j < len(traces); j += theadCount {
+				downSampled[j] = downSampleTrace(traces[j], targetCount)
+			}
+			done <- true
+		}(i)
+	}
+
+	for i := 0; i < theadCount; i++ {
+		<-done
+	}
+
+	return downSampled
+}
+
+func downSampleTrace(trace Trace, targetCount int) Trace {
+	if len(trace.Trace) <= targetCount {
+		return trace
+	}
+
+	nonLegStartCount := 0
+	for _, elem := range trace.Trace {
+		if !elem.IsLegStart {
+			nonLegStartCount++
+		}
+	}
+
+	if nonLegStartCount <= targetCount {
+		return trace
+	}
+
+	downSampled := make([]TraceElement, 0)
+
+	ratio := float64(targetCount) / float64(nonLegStartCount) // this is always < 1
+	buildUp := 0.0
+
+	for _, elem := range trace.Trace {
+		if elem.IsLegStart {
+			downSampled = append(downSampled, elem)
+			continue
+		}
+
+		buildUp += ratio
+
+		if buildUp >= 1.0 {
+			downSampled = append(downSampled, elem)
+			buildUp -= 1.0
+		}
+	}
+
+	return Trace{
+		VcId:          trace.VcId,
+		RouteOptionId: trace.RouteOptionId,
+		Trace:         downSampled,
+	}
 }
 
 func locToPoint(loc *fptf.Location) orb.Point {

@@ -4,8 +4,6 @@ import re
 
 import osmnx as ox
 
-import config
-
 
 def __ensure_directory(dir_path):
     """
@@ -30,13 +28,14 @@ def __get_graph(date_str, place_name, graph_file_location):
     return graph
 
 
-def get_graph(db, sim_id, place_name=None, undirected=False):
+def get_graph(db, sim_id, place_name=None, undirected=False, cache="./cache"):
     """
     Get the historical network for the given simulation id.
     :param db: the database
     :param sim_id: the simulation id
     :param place_name: the place name, if None, the place name will be retrieved from the database
     :param undirected: if True, return the undirected version of the graph
+    :param cache: the cache directory
     :return:
     """
     simulations = db["simulations"]
@@ -45,6 +44,8 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
 
     sim_date = sim["sim-date"]
     place_id = sim["place-id"]
+
+    data_path = cache + "/graphs"
 
     if place_name is None:
         place_resources = db["place-resources"]
@@ -55,11 +56,11 @@ def get_graph(db, sim_id, place_name=None, undirected=False):
                               + "-" + sim_date \
                               + ("-undirected" if undirected else "")
 
-    __ensure_directory(config.data_path)
+    __ensure_directory(data_path)
 
     print("Normalized dataset name: " + normalized_dataset_name)
 
-    graph_file_location = config.data_path + "/" + normalized_dataset_name + ".graphml"
+    graph_file_location = data_path + "/" + normalized_dataset_name + ".graphml"
 
     print("Graph file location: " + graph_file_location)
 

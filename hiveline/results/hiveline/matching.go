@@ -174,7 +174,7 @@ func getStreetGraph(dGraphCount int) *StreetGraph {
 	// d16: length in meters
 	// d17: LINESTRING for long ways
 
-	path := "./cache/graphs/eindhoven-netherlands-2022-10-04-undirected.graphml"
+	path := "./cache/graphs/metropolitan-region-eindhoven-netherlands-2022-10-04-undirected.graphml"
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -191,11 +191,11 @@ func getStreetGraph(dGraphCount int) *StreetGraph {
 
 	graph := graphml.Graphs[0]
 
-	tree := kdtree.New([]kdtree.Point{})
 	nodes := make([]*StreetGraphNode, len(graph.Nodes))
 	nodeIdIndex := make(map[string]uint32)
 	nextNodeId := uint32(0)
 	dGraphs := make([]*dijkstra.Graph, dGraphCount)
+	treePoints := make([]kdtree.Point, 0)
 
 	for i := 0; i < dGraphCount; i++ {
 		dGraphs[i] = dijkstra.NewGraph()
@@ -237,7 +237,7 @@ func getStreetGraph(dGraphCount int) *StreetGraph {
 			dGraph.AddVertex(int(nextNodeId))
 		}
 
-		tree.Insert(point)
+		treePoints = append(treePoints, point)
 
 		nextNodeId++
 	}
@@ -281,19 +281,28 @@ func getStreetGraph(dGraphCount int) *StreetGraph {
 			}
 		}
 
-		if lineString == "" {
-			continue
+		line := []orb.Point{nodes[from].Point, nodes[to].Point}
+
+		if lineString != "" {
+			subLine, err := parseLineString(lineString)
+			if err != nil {
+				panic(err)
+			}
+
+			line = append(append([]orb.Point{nodes[from].Point}, subLine...), nodes[to].Point)
 		}
 
-		line, err := parseLineString(lineString, from, to)
-		if err != nil {
-			panic(err)
-		}
+		pointers := getPointers(line, from, to)
 
-		for _, edgePointer := range line {
-			tree.Insert(edgePointer)
+		for _, pointer := range pointers {
+			treePoints = append(treePoints, pointer)
 		}
 	}
+
+	fmt.Println("building tree")
+	fmt.Println(len(treePoints))
+
+	tree := kdtree.New(treePoints)
 
 	return &StreetGraph{
 		Nodes:    nodes,
@@ -302,8 +311,44 @@ func getStreetGraph(dGraphCount int) *StreetGraph {
 	}
 }
 
-func parseLineString(input string, from, to uint32) ([]*StreetGraphEdgePointer, error) {
-	var lineString []*StreetGraphEdgePointer
+func getPointers(line []orb.Point, from, to uint32) []*StreetGraphEdgePointer {
+	pointers := make([]*StreetGraphEdgePointer, 0)
+
+	const maxPointDist = 0.0005
+
+	for i := 0; i < len(line); i++ {
+		if i != 0 {
+			dist := planar.Distance(line[i-1], line[i])
+
+			if dist > maxPointDist {
+				steps := int(dist / maxPointDist)
+				for j := 1; j < steps; j++ {
+					t := float64(j) / float64(steps)
+					point := orb.Point{
+						line[i-1][0] + (line[i][0]-line[i-1][0])*t,
+						line[i-1][1] + (line[i][1]-line[i-1][1])*t,
+					}
+					pointers = append(pointers, &StreetGraphEdgePointer{
+						From:  from,
+						To:    to,
+						Point: point,
+					})
+				}
+			}
+		}
+
+		pointers = append(pointers, &StreetGraphEdgePointer{
+			From:  from,
+			To:    to,
+			Point: line[i],
+		})
+	}
+
+	return pointers
+}
+
+func parseLineString(input string) ([]orb.Point, error) {
+	var lineString []orb.Point
 	input = strings.TrimPrefix(input, "LINESTRING ")
 	input = strings.Trim(input, "()")
 
@@ -316,21 +361,17 @@ func parseLineString(input string, from, to uint32) ([]*StreetGraphEdgePointer, 
 			return nil, fmt.Errorf("invalid coordinate pair: %s", coordStr)
 		}
 
-		lat, err := strconv.ParseFloat(coords[0], 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid latitude: %s", coords[0])
-		}
-
-		lon, err := strconv.ParseFloat(coords[1], 64)
+		lon, err := strconv.ParseFloat(coords[0], 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid longitude: %s", coords[1])
 		}
 
-		lineString = append(lineString, &StreetGraphEdgePointer{
-			From:  from,
-			To:    to,
-			Point: orb.Point{lon, lat},
-		})
+		lat, err := strconv.ParseFloat(coords[1], 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid latitude: %s", coords[0])
+		}
+
+		lineString = append(lineString, orb.Point{lon, lat})
 	}
 
 	return lineString, nil

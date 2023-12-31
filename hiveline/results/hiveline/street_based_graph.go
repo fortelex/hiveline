@@ -15,14 +15,10 @@ func getStreetBasedGraph(options []*RouteOption, mode fptf.Mode) *Graph {
 	fmt.Println("got", len(traces), "traces in", time.Since(t))
 	t = time.Now()
 
-	traces = downSampleTraces(traces, 500)
-
-	fmt.Println("downsampled traces in", time.Since(t))
-	t = time.Now()
-
 	traces = splitTracesByMode(traces, mode)
 
 	fmt.Println("split traces by mode in", time.Since(t))
+	fmt.Println("got", len(traces), "traces in", time.Since(t))
 	t = time.Now()
 
 	const threadCount = 12

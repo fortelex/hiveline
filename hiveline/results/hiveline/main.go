@@ -35,6 +35,16 @@ func generateStreetBasedGraph() {
 	fmt.Println("got", len(graph.Nodes), "nodes in", time.Since(t))
 	t = time.Now()
 
+	graph = DecimateByIrrelevantArcs(graph)
+
+	fmt.Println("decimated graph in", time.Since(t))
+	t = time.Now()
+
+	//graph = DecimateByCluster(graph, 0.0000001, 50)
+	//
+	//fmt.Println("decimated graph in", time.Since(t))
+	//t = time.Now()
+
 	saveToMongo(simId, graph)
 
 	fmt.Println("saved graph in", time.Since(t))

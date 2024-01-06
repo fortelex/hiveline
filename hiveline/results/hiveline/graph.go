@@ -78,6 +78,7 @@ func getGraph(options []*RouteOption, mode fptf.Mode) *Graph {
 		}
 	}
 
+	// add all nodes that are not in a cluster
 	for i, node := range traces.Nodes {
 		_, ok := revKeys[uint32(i)]
 		if ok {
@@ -215,8 +216,14 @@ type MongoArc struct {
 func saveToMongo(simId string, graph *Graph) {
 	flattenedArcs := make([][2]uint32, 0)
 
+	const visitorThreshold = 0
+
 	for from, arc := range graph.Edges {
-		for to := range arc {
+		for to, visitors := range arc {
+			if len(visitors) < visitorThreshold {
+				continue
+			}
+
 			flattenedArcs = append(flattenedArcs, [2]uint32{uint32(from), to})
 		}
 	}
@@ -232,6 +239,10 @@ func saveToMongo(simId string, graph *Graph) {
 
 	for from, arc := range graph.Edges {
 		for to, visitors := range arc {
+			if len(visitors) < visitorThreshold {
+				continue
+			}
+
 			mongoArcs = append(mongoArcs, MongoArc{
 				SimId:    simId,
 				Mode:     graph.Mode,

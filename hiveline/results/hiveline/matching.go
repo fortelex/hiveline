@@ -92,19 +92,22 @@ func matchTrace(nodeOptionTrace []uint32, streetGraph *StreetGraph, dGraphKey in
 }
 
 func getNodeOptionTrace(trace Trace, streetGraph *StreetGraph) []uint32 {
-	nodeOptionTrace := make([]uint32, len(trace.Trace))
+	nodeOptionTrace := make([]uint32, 0, len(trace.Trace))
+	lastNode := noNode
 
-	for i, elem := range trace.Trace {
+	for _, elem := range trace.Trace {
 		matchedElement := streetGraph.NodeTree.KNN(&elem, 1)
 
 		if len(matchedElement) == 0 {
-			nodeOptionTrace[i] = noNode
 			continue
 		}
 
 		node, ok := matchedElement[0].(*StreetGraphNode)
 		if ok {
-			nodeOptionTrace[i] = node.Id
+			if lastNode != node.Id {
+				nodeOptionTrace = append(nodeOptionTrace, node.Id)
+			}
+			lastNode = node.Id
 			continue
 		}
 
@@ -112,11 +115,18 @@ func getNodeOptionTrace(trace Trace, streetGraph *StreetGraph) []uint32 {
 		if ok {
 			fromDist := planar.DistanceSquared(elem.Point, streetGraph.Nodes[edgePointer.From].Point)
 			toDist := planar.DistanceSquared(elem.Point, streetGraph.Nodes[edgePointer.To].Point)
+			id := noNode
 			if fromDist < toDist {
-				nodeOptionTrace[i] = edgePointer.From
+				id = edgePointer.From
 			} else {
-				nodeOptionTrace[i] = edgePointer.To
+				id = edgePointer.To
 			}
+
+			if lastNode != id {
+				nodeOptionTrace = append(nodeOptionTrace, id)
+			}
+			lastNode = id
+
 			continue
 		}
 
